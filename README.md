@@ -1,5 +1,7 @@
 ## TL;DR
 
+Agent Coded Software: You've been warned
+
 You pick games to **Watch**. When a watched game is running, Slipstream
 maxes your power plan and closes whatever background junk you told it
 to close. When the game closes, it puts everything back.
