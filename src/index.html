@@ -210,6 +210,19 @@
       <div class="modal-card wide">
         <h3 id="gameOptionsTitle">Boost options</h3>
         <p class="section-hint">Per-game overrides. "Default" follows your global Settings tab. Priority is the only one that touches the game's own process — leave it off for anti-cheat games.</p>
+        <label class="field">
+          <span>Game name</span>
+          <input id="optName" type="text" maxlength="80" />
+        </label>
+        <label class="field">
+          <span>Icon</span>
+          <div class="field-row">
+            <span class="opt-icon-box"><img id="optIconPreview" class="opt-icon-preview" alt="" hidden /></span>
+            <input id="optIconPath" type="text" readonly placeholder="Uses the game's own icon" />
+            <button id="optIconPick" class="btn ghost small">Browse…</button>
+            <button id="optIconClear" class="btn ghost small">Default</button>
+          </div>
+        </label>
         <label class="toggle-row tri">
           <span>Watch this game</span>
           <select id="optWatched" class="select small" data-field="watched">

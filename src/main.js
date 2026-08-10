@@ -297,7 +297,8 @@ function renderGames() {
     iconBox.className = "game-icon" + (running ? " running" : "");
     const img = document.createElement("img");
     img.alt = "";
-    img.dataset.src = game.exe_path;
+    img.dataset.exe = game.exe_path;
+    if (game.custom_icon) img.dataset.icon = game.custom_icon;
     iconBox.appendChild(img);
 
     const info = document.createElement("div");
@@ -394,20 +395,23 @@ function renderGames() {
 
 const gameIconCache = new Map();
 function loadGameIcons() {
-  document.querySelectorAll(".game-icon img[data-src]").forEach((img) => {
-    const exe = img.dataset.src;
-    delete img.dataset.src;
-    if (gameIconCache.has(exe)) {
-      img.src = gameIconCache.get(exe) || "";
+  document.querySelectorAll(".game-icon img[data-exe]").forEach((img) => {
+    const exe = img.dataset.exe;
+    const icon = img.dataset.icon || "";
+    delete img.dataset.exe;
+    if (img.dataset.icon) delete img.dataset.icon;
+    const key = icon ? exe + "\u0001" + icon : exe;
+    if (gameIconCache.has(key)) {
+      img.src = gameIconCache.get(key) || "";
       return;
     }
-    invoke("get_game_icon", { exePath: exe })
+    invoke("get_game_icon", { exePath: exe, iconPath: icon || null })
       .then((url) => {
-        gameIconCache.set(exe, url || "");
+        gameIconCache.set(key, url || "");
         img.src = url || "";
       })
       .catch(() => {
-        gameIconCache.set(exe, "");
+        gameIconCache.set(key, "");
         img.src = "";
       });
   });
@@ -457,10 +461,44 @@ function makeToggleItem(name, checked, labelOn, labelOff, onChange) {
 let activeGameId = null;
 const gameOptionsModal = document.getElementById("gameOptionsModal");
 
+function previewIcon() {
+  const path = document.getElementById("optIconPath").value.trim();
+  const img = document.getElementById("optIconPreview");
+  if (!path) {
+    img.hidden = true;
+    img.removeAttribute("src");
+    return;
+  }
+  invoke("get_game_icon", { exePath: "", iconPath: path })
+    .then((url) => {
+      if (url && path === document.getElementById("optIconPath").value.trim()) {
+        img.src = url;
+        img.hidden = false;
+      }
+    })
+    .catch(() => { img.hidden = true; });
+}
+
+document.getElementById("optIconPick").addEventListener("click", async () => {
+  const p = await invoke("pick_icon");
+  if (!p) return;
+  document.getElementById("optIconPath").value = p;
+  previewIcon();
+});
+
+document.getElementById("optIconClear").addEventListener("click", () => {
+  document.getElementById("optIconPath").value = "";
+  previewIcon();
+});
+
 function openGameOptions(game) {
   try {
     activeGameId = game.id;
     document.getElementById("gameOptionsTitle").textContent = `${game.name} — boost options`;
+    const nameInput = document.getElementById("optName");
+    if (nameInput) nameInput.value = game.name;
+    document.getElementById("optIconPath").value = game.custom_icon || "";
+    previewIcon();
     const map = {
       boost_power: game.boost_power,
       boost_priority: game.boost_priority,
@@ -507,11 +545,13 @@ document.getElementById("gameOptionsSave").addEventListener("click", async () =>
     });
     store = await invoke("set_game_options", {
       id: activeGameId,
+      name: document.getElementById("optName").value.trim(),
       watched: selValue(document.querySelector('#gameOptionsModal [data-field="watched"]')),
       boostPower: selValue(document.querySelector('#gameOptionsModal [data-field="boost_power"]')),
       boostPriority: selValue(document.querySelector('#gameOptionsModal [data-field="boost_priority"]')),
       closeBackground: selValue(document.querySelector('#gameOptionsModal [data-field="close_background"]')),
       keepOpen,
+      customIcon: document.getElementById("optIconPath").value.trim(),
     });
     jslog("info", `set_game_options returned OK, keep_open=${JSON.stringify(keepOpen)}`);
     gameOptionsModal.hidden = true;

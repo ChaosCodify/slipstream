@@ -1,3 +1,5 @@
+[![License: GPL-3.0](https://img.shields.io/github/license/ChaosCodify/slipstream)](https://github.com/ChaosCodify/slipstream/blob/main/LICENSE)
+
 ## TL;DR
 
 Agent Coded Software: You've been warned

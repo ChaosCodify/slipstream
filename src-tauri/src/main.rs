@@ -121,6 +121,8 @@ struct GameEntry {
     close_background: Option<bool>, // None = use global setting
     #[serde(default)]
     keep_open: Vec<String>,         // blocklisted exes to NOT close for this game
+    #[serde(default)]
+    custom_icon: Option<String>,    // optional image file used instead of the exe's icon
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -878,10 +880,34 @@ fn exe_hash(exe: &str) -> u64 {
     h
 }
 
-/// Returns the exe's embedded icon as a data: URL (PNG). Extracts to a cache
-/// once, then reads from disk.
+/// Returns a game's icon as a data: URL. If `icon_path` (a user-picked
+/// image file) is set, that file is used; otherwise the exe's embedded icon
+/// is extracted (cached once, then read from disk).
 #[tauri::command]
-fn get_game_icon(app: AppHandle, exe_path: String) -> Option<String> {
+fn get_game_icon(app: AppHandle, exe_path: String, icon_path: Option<String>) -> Option<String> {
+    if let Some(ip) = icon_path {
+        let ip = ip.trim();
+        if !ip.is_empty() {
+            if let Ok(bytes) = fs::read(ip) {
+                if !bytes.is_empty() {
+                    let mime = match std::path::Path::new(ip)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| e.to_lowercase())
+                        .as_deref()
+                    {
+                        Some("jpg") | Some("jpeg") => "image/jpeg",
+                        Some("ico") => "image/x-icon",
+                        Some("bmp") => "image/bmp",
+                        Some("webp") => "image/webp",
+                        _ => "image/png",
+                    };
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    return Some(format!("data:{mime};base64,{b64}"));
+                }
+            }
+        }
+    }
     let cached = icon_cache_file(&app, &exe_path);
     if !cached.exists() {
         let out = cached.display().to_string();
@@ -1123,6 +1149,7 @@ fn new_game_entry(exe_path: String, name: &str, source: &str) -> GameEntry {
         boost_priority: None,
         close_background: None,
         keep_open: vec![],
+        custom_icon: None,
     }
 }
 
@@ -1251,17 +1278,25 @@ fn set_watched(app: AppHandle, id: String, watched: bool) -> Result<Store, Strin
 fn set_game_options(
     app: AppHandle,
     id: String,
+    name: Option<String>,
     watched: Option<bool>,
     boost_power: Option<bool>,
     boost_priority: Option<bool>,
     close_background: Option<bool>,
     keep_open: Option<Vec<String>>,
+    custom_icon: Option<String>,
 ) -> Result<Store, String> {
     dlog!(
-        "cmd set_game_options: id={id} watched={watched:?} power={boost_power:?} priority={boost_priority:?} close={close_background:?} keep_open={keep_open:?}"
+        "cmd set_game_options: id={id} name={name:?} watched={watched:?} power={boost_power:?} priority={boost_priority:?} close={close_background:?} keep_open={keep_open:?} icon={custom_icon:?}"
     );
     let mut store = load_store(&app);
     if let Some(g) = store.games.iter_mut().find(|g| g.id == id) {
+        if let Some(v) = name {
+            let t = v.trim();
+            if !t.is_empty() {
+                g.name = t.to_string();
+            }
+        }
         if let Some(v) = watched {
             g.watched = v;
         }
@@ -1276,6 +1311,13 @@ fn set_game_options(
         }
         if let Some(v) = keep_open {
             g.keep_open = v;
+        }
+        if let Some(v) = custom_icon {
+            if v.trim().is_empty() {
+                g.custom_icon = None;
+            } else {
+                g.custom_icon = Some(v);
+            }
         }
     }
     write_store(&app, &store)?;
@@ -1796,6 +1838,17 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
         .map(|p| p.to_string())
 }
 
+#[tauri::command]
+async fn pick_icon(app: AppHandle) -> Option<String> {
+    dlog!("cmd pick_icon");
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .file()
+        .add_filter("Image", &["png", "jpg", "jpeg", "ico", "bmp", "webp"])
+        .blocking_pick_file()
+        .map(|p| p.to_string())
+}
+
 // ---------- admin elevation ----------
 
 /// Public true: whether the current process runs with an elevated token.
@@ -1934,6 +1987,7 @@ fn main() {
             get_status,
             pick_exe,
             pick_folder,
+            pick_icon,
             debug_log,
             get_debug_log_path,
             get_debug_log_backlog,

@@ -1,3 +1,26 @@
+## TL;DR
+
+Agent Coded Software: You've been warned
+
+You pick games to **Watch**. When a watched game is running, Slipstream
+maxes your power plan and closes whatever background junk you told it
+to close. When the game closes, it puts everything back.
+
+It never launches the game and never touches the game's process
+directly — it only watches from outside. That's on purpose: touching
+the game process is the kind of thing that gets flagged by anti-cheat,
+so this just doesn't do that.
+
+No internet calls anywhere in this thing. Go check `main.rs` yourself
+if you don't believe me.
+
+Windows only. Fork it, break it, fix it — that's the point.
+
+<img width="1100" height="760" alt="image" src="https://github.com/user-attachments/assets/877ef486-6e21-4406-91c5-85eeef579990" />
+
+---
+
+
 # Slipstream — README content blocks
 
 Ready-to-paste blocks for the README / About panel. Grab what you want.

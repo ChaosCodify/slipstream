@@ -1030,6 +1030,23 @@ input[type="text"]:focus { outline: none; border-color: var(--line-hi); box-shad
 .field input { color: var(--text); }
 .field-row { display: flex; gap: 6px; }
 .field-row input { flex: 1; }
+.opt-icon-box {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.opt-icon-preview {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
 
 .modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 
