@@ -18,6 +18,7 @@ if you don't believe me.
 
 Windows only. Fork it, break it, fix it — that's the point.
 
+You can tag me in posts with your screenshots and ill add some to this:
 <img width="1100" height="760" alt="image" src="https://github.com/user-attachments/assets/877ef486-6e21-4406-91c5-85eeef579990" />
 
 ---
