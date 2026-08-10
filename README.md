@@ -16,6 +16,9 @@ Windows only. Fork it, break it, fix it — that's the point.
 
 # Slipstream
 
+<img width="1100" height="760" alt="image" src="https://github.com/user-attachments/assets/c32fb91e-3488-48c7-96b8-8cbc78da81dc" />
+
+
 A local, telemetry-free "boost & watch" utility for Windows. Built as a
 Tauri v2 app instead of a loose `.ps1` because it needs a persisted game
 list and a UI to manage the process blocklist — but the actual boost logic
