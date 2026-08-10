@@ -16,6 +16,11 @@ if you don't believe me.
 
 Windows only. Fork it, break it, fix it — that's the point.
 
+<img width="1100" height="760" alt="image" src="https://github.com/user-attachments/assets/877ef486-6e21-4406-91c5-85eeef579990" />
+
+---
+
+
 # Slipstream — README content blocks
 
 Ready-to-paste blocks for the README / About panel. Grab what you want.
