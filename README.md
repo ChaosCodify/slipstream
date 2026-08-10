@@ -1,3 +1,19 @@
+## TL;DR
+
+You pick games to **Watch**. When a watched game is running, Slipstream
+maxes your power plan and closes whatever background junk you told it
+to close. When the game closes, it puts everything back.
+
+It never launches the game and never touches the game's process
+directly — it only watches from outside. That's on purpose: touching
+the game process is the kind of thing that gets flagged by anti-cheat,
+so this just doesn't do that.
+
+No internet calls anywhere in this thing. Go check `main.rs` yourself
+if you don't believe me.
+
+Windows only. Fork it, break it, fix it — that's the point.
+
 # Slipstream
 
 A local, telemetry-free "boost & watch" utility for Windows. Built as a
