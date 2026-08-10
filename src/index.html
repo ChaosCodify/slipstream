@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Slipstream</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar" data-tauri-drag-region>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <img src="app-icon.png" alt="" width="20" height="20" />
+        </span>
+        <span class="brand-name">Slipstream</span>
+      </div>
+      <div class="status-pill" id="statusPill">
+        <span class="dot"></span>
+        <span id="statusText">Idle</span>
+      </div>
+      <div class="win-controls no-drag" id="winControls">
+        <button id="winMin" class="win-btn" title="Minimize" aria-label="Minimize">🗕</button>
+        <button id="winMax" class="win-btn" title="Maximize" aria-label="Maximize">🗖</button>
+        <button id="winClose" class="win-btn win-close" title="Close" aria-label="Close">✕</button>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="games" role="tab" aria-selected="true">Games</button>
+      <button class="tab" data-tab="folders" role="tab" aria-selected="false">Folders</button>
+      <button class="tab" data-tab="settings" role="tab" aria-selected="false">Settings</button>
+    </nav>
+
+    <main>
+      <section id="panel-games" class="panel active">
+        <div id="actionStrip" class="action-strip" hidden>
+          <span class="action-strip-label" id="actionStripText">Game mode active</span>
+        </div>
+        <div id="detectBanner" class="detect-banner" hidden>
+          <div class="detect-banner-inner">
+            <div class="detect-icon" aria-hidden="true">🎮</div>
+            <div class="detect-body">
+              <div class="detect-title" id="detectTitle">Looks like a game is running</div>
+              <div class="detect-sub" id="detectSub">Nothing</div>
+            </div>
+            <div class="detect-actions">
+              <button id="detectAddBtn" class="btn primary small">Turn game mode on</button>
+              <button id="detectDismissBtn" class="btn ghost small">Not a game</button>
+            </div>
+          </div>
+        </div>
+        <div class="panel-toolbar">
+          <div class="steam-picker">
+            <select id="steamSelect" class="select" aria-label="Add a Steam game">
+              <option value="" disabled>Detecting games…</option>
+            </select>
+            <button id="refreshSteamBtn" class="btn ghost small" title="Re-scan Steam library">⟳</button>
+          </div>
+          <button id="scanFolderBtn" class="btn ghost">Scan folder</button>
+          <button id="addCustomBtn" class="btn ghost">Add exe</button>
+        </div>
+        <div id="scanFolderChips" class="chip-list" hidden></div>
+        <div id="gameList" class="game-list"></div>
+        <p id="emptyState" class="empty-state" hidden>
+          No games yet. Pick from the Steam dropdown above, scan a game folder, or add an exe manually.
+        </p>
+      </section>
+
+      <section id="panel-folders" class="panel">
+        <div class="section-head">
+          <h2 class="section-title" style="margin:0">Library folders</h2>
+        </div>
+        <p class="section-hint">Folders scanned for game executables. You can add as many as you like — each one is scanned on demand from the Games tab.</p>
+        <div id="folderGrid" class="folder-grid"></div>
+        <div class="add-row">
+          <button id="addFolderBtn" class="btn ghost small">Add folder…</button>
+        </div>
+        <p id="folderEmptyHint" class="section-hint">No folders yet. Add one to start scanning for games.</p>
+      </section>
+
+<section id="panel-settings" class="panel">
+        <nav class="sub-tabs" role="tablist">
+          <button class="sub-tab active" data-sub="theme" role="tab" aria-selected="true">Theme</button>
+          <button class="sub-tab" data-sub="close" role="tab" aria-selected="false">Always close</button>
+          <button class="sub-tab" data-sub="boost" role="tab" aria-selected="false">Boost behavior</button>
+          <button class="sub-tab" data-sub="tweaks" role="tab" aria-selected="false">Windows tweaks</button>
+          <button class="sub-tab" data-sub="debug" role="tab" aria-selected="false">Debug</button>
+        </nav>
+
+        <div id="sub-theme" class="sub-panel active">
+          <div class="section-head">
+            <h2 class="section-title" style="margin:0">Theme</h2>
+          </div>
+          <p class="section-hint">Pick the storefront vibe. This changes only the look of Slipstream — never what it does.</p>
+          <div id="themeGrid" class="theme-grid"></div>
+        </div>
+
+        <div id="sub-close" class="sub-panel">
+          <div class="section-head">
+            <h2 class="section-title" style="margin:0">What gets closed while a watched game is running</h2>
+          </div>
+          <p class="section-hint">Processes below are force-closed while your game is running. Nothing is reopened afterwards — that's on purpose.</p>
+          <div id="blocklist" class="tlist"></div>
+          <div class="add-row">
+            <input id="newProcessInput" type="text" placeholder="ProcessName.exe" />
+            <button id="addProcessBtn" class="btn ghost small">Add</button>
+          </div>
+          <div class="add-row">
+            <button id="pickRunningBtn" class="btn ghost small">Pick from running processes…</button>
+            <button id="restoreDefaultsBtn" class="btn ghost small">Restore defaults</button>
+          </div>
+        </div>
+
+        <div id="sub-boost" class="sub-panel">
+          <div class="section-head">
+            <h2 class="section-title" style="margin:0">Boost behavior (global defaults)</h2>
+          </div>
+          <p class="section-hint">These apply to every game unless a game overrides them in its own Options panel.</p>
+          <label class="toggle-row">
+            <input type="checkbox" id="togglePowerPlan" />
+            <span>Switch Windows to High Performance power plan while watched game is running</span>
+          </label>
+          <label class="toggle-row">
+            <input type="checkbox" id="togglePriority" />
+            <span>Raise the game's process priority to High (off by default — this is the only action that touches the game's own process; safest to leave off for EAC games like Tokon)</span>
+          </label>
+          <label class="toggle-row">
+            <input type="checkbox" id="toggleClose" />
+            <span>Close blocklisted background apps while a watched game is running</span>
+          </label>
+        </div>
+
+        <div id="sub-tweaks" class="sub-panel">
+          <div class="section-head">
+            <h2 class="section-title" style="margin:0">Windows tweaks — per boost</h2>
+          </div>
+          <p class="section-hint">Optional tweaks applied while a watched game is boosting and reverted when it exits. Items marked <span class="admin-chip">shield</span> need Slipstream running as admin — if it isn't, they're greyed out and toggling requests elevation.</p>
+          <div id="boostTweakList" class="tlist"></div>
+
+          <div class="section-head" style="margin-top:22px">
+            <h2 class="section-title" style="margin:0">Windows tweaks — once (permanent)</h2>
+          </div>
+          <p class="section-hint">One-time tweaks applied to the machine and tracked in store.json; each shows an "Applied" state and an explicit Revert button. Several need a reboot.</p>
+          <div id="permanentTweakList" class="tweak-list"></div>
+        </div>
+
+        <div id="sub-debug" class="sub-panel">
+          <div class="section-head">
+            <h2 class="section-title" style="margin:0">Debug</h2>
+          </div>
+          <label class="toggle-row">
+            <input type="checkbox" id="toggleDebugLogging" />
+            <span>Debug logging (writes <code>slipstream-debug.log</code> next to the exe and mirrors every line to the toa.sh console)</span>
+          </label>          <div class="add-row">
+            <button id="copyLogPathBtn" class="btn ghost small">Copy log path</button>
+            <button id="toaBtn" class="btn ghost small">Open debug console (toa.sh)</button>
+          </div>
+          <p class="section-hint">The debug console is its own small OS window (<b>toa.sh</b>) showing every log line live. Toggle it any time with <b>F12</b> or <b>Ctrl+`</b> — it starts closed. Debug logging is off by default; enable it when you need to capture what's happening.</p>
+          <button id="saveSettingsBtn" class="btn primary">Save settings</button>
+        </div>
+      </section>
+    </main>
+
+    <div id="pickerModal" class="modal" hidden>
+      <div class="modal-card">
+        <h3>Pick a running process</h3>
+        <input id="pickerFilter" type="text" placeholder="Filter…" />
+        <div id="pickerList" class="picker-list"></div>
+        <button id="pickerClose" class="btn ghost small">Close</button>
+      </div>
+    </div>
+
+    <div id="addGameModal" class="modal" hidden>
+      <div class="modal-card">
+        <h3>Add a game</h3>
+        <label class="field">
+          <span>Name</span>
+          <input id="gameNameInput" type="text" placeholder="My Game" />
+        </label>
+        <label class="field">
+          <span>Executable</span>
+          <div class="field-row">
+            <input id="gameExeInput" type="text" placeholder="C:\...\Game.exe" readonly />
+            <button id="browseExeBtn" class="btn ghost small">Browse…</button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Launch arguments (optional)</span>
+          <input id="gameArgsInput" type="text" placeholder="-dx12" />
+        </label>
+        <div class="modal-actions">
+          <button id="cancelAddGame" class="btn ghost small">Cancel</button>
+          <button id="confirmAddGame" class="btn primary small">Save game</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="scanResultsModal" class="modal" hidden>
+      <div class="modal-card wide">
+        <h3 id="scanResultsTitle">Found in folder</h3>
+        <div id="scanResultsList" class="picker-list"></div>
+        <div class="modal-actions">
+          <button id="scanResultsClose" class="btn ghost small">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="gameOptionsModal" class="modal" hidden>
+      <div class="modal-card wide">
+        <h3 id="gameOptionsTitle">Boost options</h3>
+        <p class="section-hint">Per-game overrides. "Default" follows your global Settings tab. Priority is the only one that touches the game's own process — leave it off for anti-cheat games.</p>
+        <label class="toggle-row tri">
+          <span>Watch this game</span>
+          <select id="optWatched" class="select small" data-field="watched">
+            <option value="keep" selected>Keep current</option>
+            <option value="1">Watched</option>
+            <option value="0">Not watched</option>
+          </select>
+        </label>
+        <label class="toggle-row tri">
+          <span>High Performance power plan</span>
+          <select id="optPower" class="select small" data-field="boost_power">
+            <option value="" selected>Default</option>
+            <option value="1">On</option>
+            <option value="0">Off</option>
+          </select>
+        </label>
+        <label class="toggle-row tri">
+          <span>Close background apps</span>
+          <select id="optClose" class="select small" data-field="close_background">
+            <option value="" selected>Default</option>
+            <option value="1">On</option>
+            <option value="0">Off</option>
+          </select>
+        </label>
+        <label class="toggle-row tri">
+          <span>Raise process priority to High</span>
+          <select id="optPriority" class="select small" data-field="boost_priority">
+            <option value="" selected>Default</option>
+            <option value="1">On</option>
+            <option value="0">Off</option>
+          </select>
+        </label>
+        <div class="keep-open">
+          <div class="keep-open-head">
+            <span>Keep these open for this game</span>
+            <span class="keep-open-hint">Skips closing them, per-game</span>
+          </div>
+          <div id="keepOpenList" class="tlist"></div>
+        </div>
+        <div class="modal-actions">
+          <button id="gameOptionsClose" class="btn ghost small">Close</button>
+          <button id="gameOptionsSave" class="btn primary small">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
