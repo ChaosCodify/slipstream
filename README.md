@@ -1,4 +1,8 @@
+
 [![License: GPL-3.0](https://img.shields.io/github/license/ChaosCodify/slipstream)](https://github.com/ChaosCodify/slipstream/blob/main/LICENSE)
+
+<img width="1168" height="388" alt="image1" src="https://github.com/user-attachments/assets/22dbc0e4-b57c-4e9a-9274-ea924126860a" />
+
 
 ## TL;DR
 
