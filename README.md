@@ -16,7 +16,7 @@ Windows only. Fork it, break it, fix it — that's the point.
 
 # Slipstream
 
-<img width="1100" height="760" alt="image" src="https://github.com/user-attachments/assets/c32fb91e-3488-48c7-96b8-8cbc78da81dc" />
+<img width="1100" height="760" alt="image" src="https://github.com/user-attachments/assets/3998a3cd-d261-4e9b-97e1-f32b926ffc79" />
 
 
 A local, telemetry-free "boost & watch" utility for Windows. Built as a
