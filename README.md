@@ -16,6 +16,15 @@ if you don't believe me.
 
 Windows only. Fork it, break it, fix it — that's the point.
 
+## Slipstream vs. Razer Cortex
+
+|                     | Razer Cortex        | Slipstream          |
+|---------------------|----------------------|----------------------|
+| Requires account    | Yes                  | No                   |
+| Telemetry           | Yes                  | None — check the code |
+| Open source          | No                    | Yes                  |
+| Extra bloat/bundled apps | Yes              | No                   |
+
 # Slipstream
 
 <img width="1100" height="760" alt="image" src="https://github.com/user-attachments/assets/3998a3cd-d261-4e9b-97e1-f32b926ffc79" />
