@@ -153,6 +153,14 @@ struct Settings {
     dismissed_games: Vec<String>, // game names the user told us not to nag about
     #[serde(default)]
     debug_logging: bool, // opt-in: write the debug log + show toa console mirror
+    #[serde(default = "default_ui_mode")]
+    ui_mode: String, // "basic" (one-click Run) | "advanced" (full UI)
+    #[serde(default = "default_true")]
+    purge_standby: bool, // Basic one-click Run also flushes the standby RAM list
+}
+
+fn default_ui_mode() -> String {
+    "basic".into()
 }
 
 fn default_true() -> bool {
@@ -190,6 +198,8 @@ impl Default for Settings {
             applied_tweaks: vec![],
             dismissed_games: vec![],
             debug_logging: false,
+            ui_mode: default_ui_mode(),
+            purge_standby: true,
         }
     }
 }
@@ -214,6 +224,10 @@ struct RuntimeState {
     // what a launch applied). fso needs the exe list to remove its layer value.
     boost_tweaks_applied: Vec<String>,
     boost_exes: Vec<String>,
+    // Basic ("one-click run") mode drives its own boost lifecycle: the
+    // watcher must leave it alone while active.
+    basic_active: bool,
+    basic_exe: Option<String>,
 }
 
 type SharedState = Arc<Mutex<RuntimeState>>;
@@ -319,6 +333,50 @@ const GAME_STEM_HINTS: &[&str] = &[
     "valorant", "league", "rocketleague", "warframe", "fortnite",
     "hunt", "tarkov", "destiny2", "gta5", "gta_launcher", "gtav",
     "witcher3", "witcher", "skyrim", "fallout4", "fallout76", "no man's",
+    // more common titles / launcher-less games
+    "minecraft", "minecraftlauncher", "palworld", "palia", "overwatch",
+    "starrail", "star rail", "honkai", "genshin", "genshinimpact",
+    "zenless", "wuthering", "wutheringwaves", "blue", "arknights",
+    "apex", "apex legends", "r6", "siege", "pubg", "cod", "warf",
+    "content folder", "seaofthieves", "sea of thieves", "helldivers",
+    "deep rock", "satisfactory", "factorio", "rimworld", "oxygen not",
+    "the forest", "rust", "ark", "dayz", "dead by", "dbd", "phasmophobia",
+    "mordhau", "chivalry", "pathofexile", "path of exile", "hearthstone",
+    "worldofwarcraft", "wow", "diablo", "starcraft", "overwatch2",
+    "machine", "card", "sim", "planet coaster", "cities", "beamng",
+    "assetto", "forza", "nfs", "need for speed", "gtaonline", "red",
+    "ffxiv", "ffx", "final fantasy", "monster hunter", "mhw", "rise",
+    "tekken", "mk11", "mortal kombat", "street fighter", "guilty gear",
+    "elden", "dark souls", "sekiro", "lies", "wo long", "nioh", "grime",
+    "hades", "dead cells", "slay", "rogue", "oxenfree", "firewatch",
+    "outer wilds", "subnautica", "no one", "returnal", "deathloop",
+    "ghostwire", "hi-fi", "hi fi", "forza horizon", "the crew",
+    "grim dawn", "titan quest", "torchlight", "diablo iv", "d4",
+    "overwatch 2", "warzone", "mw2", "mw3", "vanguard", "destiny",
+    "lost ark", "gw2", "guild wars", "eso", "elder scrolls", "newworld",
+    "throne", "avowed", "starfield", "outer worlds", "grounded",
+    "sea of thieves", "state of", "sunset", "alan", "control", "quantum",
+    "prey", "dishonored", "doom", "wolfenstein", "rage 2", "evil",
+    "the evil", "resident", "re4", "re2", "re3", "dead", "silent",
+    "outlast", "amnesia", "fatal", "paranormal", "back4blood", "l4d",
+    "left 4 dead", "payday", "gtfo", "killing", "dying", "zombie",
+    "the walking dead", "telltale", "life is", "detroit", "beyond",
+    "heavy", "god of", "g od", "spider-man", "spiderman", "spider man",
+    "horizon", "zero dawn", "forbidden", "ghost of", "tsushima",
+    "ratchet", "clank", "sackboy", "astro", "gran turismo", "gt7",
+    "bloodborne", "demon", "sekiro", "armored", "ace combat", "rally",
+    "wrc", "di rt", "dirt", "grid", "f1 20", "motogp", "ride", "mx",
+    "wreckfest", "snowrunner", "mudrunner", "farming", "goat", "stray",
+    "planet zoo", "jurassic", "prehistoric", "surviving", "dome",
+    "frostpunk", "this war", "they are", "twelve", "timberborn",
+    "against the storm", "robo", "kaiju", "pacif", "shoot", "empyrion",
+    "space", "kovaa", "aim", "osu", "geometry", "neon", "nothin",
+    "square", "high", "poly", "bridge", "minecraft", "vintage",
+    "slime", "raft", "green", "goodra", "spore", "the sims", "sims",
+    "cities skylines", "two point", "prison", "evolve", "crysis",
+    "farcry", "far cry", "just", "watch", "the division", "ghost recon",
+    "splinter", "rainbow", "assassin", "creed", "unity", "shadow",
+    "prince of persia", "beyond good", "ray", "rayman", "valiant",
 ];
 
 fn looks_like_game(name: &str, exe: Option<&std::path::Path>) -> bool {
@@ -329,18 +387,46 @@ fn looks_like_game(name: &str, exe: Option<&std::path::Path>) -> bool {
         "crashpad", "elev", "bootstrapper", "updater", "update", "vc_redist",
         "cor_email", "backend", "server", "webhelper", "overlay",
         "steam", "epic", "goggalaxy", "origin", "ubisoft", "discord",
+        "gamebar", "gamingservices", "xboxapp", "textinputhost", "searchapp",
+        "startmenuexperience", "shellexperiencehost", "applicationframehost",
     ];
     if noisy.iter().any(|n| stem.contains(n)) {
         return false;
     }
-    // Known game exe name.
-    if GAME_STEM_HINTS.iter().any(|h| *h == stem) {
+    // Known game exe name. Exact match, or the exe simply starts with a
+    // distinctive game phrase (ZenlessZoneZero -> "zenless", GenshinImpact ->
+    // "genshin", HonkaiStarRail -> "honkai", PathOfExile -> "pathofexile").
+    let stem_spaced = stem.replace(['-', '_'], "");
+    if let Some(h) = GAME_STEM_HINTS.iter().find(|h| **h == stem || **h == stem_spaced) {
+        let _ = h;
+        return true;
+    }
+    if GAME_STEM_HINTS
+        .iter()
+        .any(|h| h.len() >= 4 && (stem.starts_with(h) || stem_spaced.starts_with(h)))
+    {
         return true;
     }
     // Lives under a store install root.
     if let Some(p) = exe {
         let lp = p.to_string_lossy().to_lowercase().replace('/', "\\");
         if game_install_root_marks().iter().any(|m| lp.contains(m)) {
+            return true;
+        }
+        // Generic engine/game markers cover titles we can't list by name:
+        // Unreal Engine shipping builds, Unity, Godot, and friends.
+        if lp.contains("\\steamapps\\") || lp.contains("steam library") {
+            return true;
+        }
+        let ugly = ["\\windows\\", "\\program files\\windowsapps", "\\programdata\\"];
+        if ugly.iter().any(|u| lp.contains(u)) {
+            return false;
+        }
+        let stem2 = exe_file_stem(p.to_string_lossy().as_ref());
+        if ["-shipping", "-win64", "-win32", "shipping"].iter().any(|m| stem2.contains(m))
+            || stem2.starts_with("game")
+            || stem2.ends_with("_game")
+        {
             return true;
         }
     }
@@ -355,6 +441,153 @@ fn running_game_processes() -> Vec<(String, Option<PathBuf>)> {
         .values()
         .map(|p| (p.name().to_string_lossy().to_string(), p.exe().map(|x| x.to_path_buf())))
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Graphics-API detection (the "elegant way"): a process is game-like if it has
+// loaded a rendering DLL (d3d9/d3d11/d3d12/dxgi/opengl/vulkan). This is how
+// MSI Afterburner, RTSS and Special K spot games with zero curated list.
+// ---------------------------------------------------------------------------
+
+const GRAPHICS_DLLS: &[&str] = &[
+    "d3d9.dll",
+    "d3d11.dll",
+    "d3d12.dll",
+    "dxgi.dll",
+    "opengl32.dll",
+    "vulkan-1.dll",
+];
+
+fn process_loaded_graphics_dll(pid: u32) -> Option<String> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W, TH32CS_SNAPMODULE,
+    };
+
+    let snap = match unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid) } {
+        Ok(s) => s,
+        Err(_) => return None,
+    };
+    let mut entry = MODULEENTRY32W::default();
+    entry.dwSize = std::mem::size_of::<MODULEENTRY32W>() as u32;
+    let mut found: Option<String> = None;
+    unsafe {
+        let mut first = Module32FirstW(snap, &mut entry).is_ok();
+        while first {
+            let name = wide_to_string(&entry.szModule);
+            let lower = name.to_lowercase();
+            if let Some(dll) = GRAPHICS_DLLS.iter().find(|d| **d == lower) {
+                found = Some(dll.to_string());
+                break;
+            }
+            first = Module32NextW(snap, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snap);
+    }
+    found
+}
+
+fn wide_to_string(buf: &[u16]) -> String {
+    let end = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+    String::from_utf16_lossy(&buf[..end])
+}
+
+/// Non-game processes that render 3D/GPU-accelerated UI but are never games.
+/// Living list — extend as noise shows up during testing. Compared
+/// case-insensitively against the process image name.
+const GAME_EXCLUDE_NAMES: &[&str] = &[
+    "explorer.exe", "dwm.exe", "chrome.exe", "msedge.exe", "firefox.exe",
+    "discord.exe", "discordcanary.exe", "code.exe", "devenv.exe",
+    "searchhost.exe", "startmenuexperiencehost.exe", "applicationframehost.exe",
+    "svchost.exe", "microsoftedge.exe", "photoshop.exe", "paintstudio.exe",
+    "zoom.exe", "teams.exe", "spotify.exe", "steam.exe", "steamwebhelper.exe",
+    "epicgameslauncher.exe", "origin.exe", "gog galaxy.exe", "battle.net.exe",
+    "ubisoftconnect.exe", "goggalaxy.exe", "textinputhost.exe",
+    "windowsterminal.exe", "conhost.exe", "openconsole.exe", "pwsh.exe",
+    "powershell.exe", "cmd.exe", "notepad.exe", "onedrive.exe", "logioverlay.exe",
+];
+
+fn process_has_visible_window(pid: u32) -> bool {
+    use windows::Win32::Foundation::{HWND, LPARAM, RECT};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        EnumWindows, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, WNDENUMPROC,
+    };
+
+    // No ownership across the callback; use a small thread-local accumulator.
+    thread_local! {
+        static PID: std::cell::Cell<u32> = std::cell::Cell::new(0);
+        static FOUND: std::cell::Cell<bool> = std::cell::Cell::new(false);
+    }
+
+    unsafe extern "system" fn enum_proc(hwnd: HWND, _lparam: LPARAM) -> windows_core::BOOL {
+        let mut owner: u32 = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut owner));
+        let matches = PID.with(|p| p.get() == owner);
+        if matches
+            && IsWindowVisible(hwnd).as_bool()
+            && {
+                let mut rect = RECT::default();
+                GetWindowRect(hwnd, &mut rect).is_ok()
+                    && (rect.right - rect.left) > 0
+                    && (rect.bottom - rect.top) > 0
+            }
+        {
+            FOUND.with(|f| f.set(true));
+            return windows_core::BOOL(0); // stop enumerating
+        }
+        windows_core::BOOL(1)
+    }
+
+    PID.with(|p| p.set(pid));
+    FOUND.with(|f| f.set(false));
+    let proc: WNDENUMPROC = Some(enum_proc);
+    unsafe { let _ = EnumWindows(proc, LPARAM(0)); }
+    FOUND.with(|f| f.get())
+}
+
+/// Partitions running processes: returns (friendly stem, exe path) for every
+/// process that passes ALL THREE game-like tests:
+///   1. Loaded a graphics API DLL (d3d9/d3d11/d3d12/dxgi/opengl/vulkan),
+///   2. Has a visible top-level window with nonzero size,
+///   3. Name is not in the hardcoded exclusion list.
+fn running_graphics_processes() -> Vec<(String, String)> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let mut out = vec![];
+    for p in sys.processes().values() {
+        let pid = p.pid().as_u32();
+        let exe = match p.exe() {
+            Some(e) => e.to_path_buf(),
+            None => continue,
+        };
+        let pm = p.name().to_string_lossy().to_lowercase();
+        // Exclusion list (test 3).
+        if GAME_EXCLUDE_NAMES.iter().any(|n| n.to_lowercase() == pm) {
+            continue;
+        }
+        // Skip anything living inside Windows dirs (drivers, system apps) unless
+        // it's a known store (which lives under Program Files).
+        let lp = exe.to_string_lossy().to_lowercase().replace('/', "\\");
+        if lp.contains("\\windows\\") && !lp.contains("\\windowsapps\\") {
+            continue;
+        }
+        // Test 1: graphics DLL.
+        if process_loaded_graphics_dll(pid).is_none() {
+            continue;
+        }
+        // Test 2: visible top-level window.
+        if !process_has_visible_window(pid) {
+            continue;
+        }
+        out.push((
+            exe_file_stem(exe.to_string_lossy().as_ref()),
+            exe.to_string_lossy().to_string(),
+        ));
+    }
+    out.sort();
+    out.dedup();
+    dlog!("graphics-process detection (dll+window+exclude): {} candidates", out.len());
+    out
 }
 
 fn close_blocklisted(blocklist: &[String], procs: &HashSet<String>, quiet: bool) -> Vec<String> {
@@ -1613,13 +1846,17 @@ struct StatusPayload {
     closed_processes: Vec<String>,
 }
 
-fn emit_status(app: &AppHandle, state: &SharedState) {
+fn status_payload(state: &SharedState) -> StatusPayload {
     let s = state.lock().unwrap();
-    let payload = StatusPayload {
+    StatusPayload {
         running: s.running_game_ids.clone(),
         boosted: s.boosted(),
         closed_processes: s.closed_processes.clone(),
-    };
+    }
+}
+
+fn emit_status(app: &AppHandle, state: &SharedState) {
+    let payload = status_payload(state);
     let _ = app.emit("slipstream://status", payload);
 }
 
@@ -1631,7 +1868,232 @@ impl RuntimeState {
     }
 }
 
+/// One-click "Run" set: the per-boost tweaks that are session-scoped and
+/// revert on exit, so Basic mode changes nothing permanently.
+const BASIC_BOOST_TWEAKS: &[&str] = &["fso", "dvr", "bgapps", "vfx", "netthrottle", "sysresp", "pwrthrottle"];
+
+fn apply_basic_tweaks(exes: &[String]) -> Vec<String> {
+    let elevated = is_elevated();
+    let mut applied = vec![];
+    for id in BASIC_BOOST_TWEAKS {
+        let Some(def) = tweak_defs().into_iter().find(|t| t.id == *id) else {
+            continue;
+        };
+        let cmds = apply_cmds(id, exes);
+        if def.admin && !elevated {
+            dlog!("basic tweak {id} needs admin, skipping (not elevated)");
+            continue;
+        }
+        if run_tweak_cmds(&cmds, def.admin) {
+            applied.push(id.to_string());
+        }
+    }
+    applied
+}
+
+// ntdll is linked directly (no windows-crate binding for these). Same calls
+// Sysinternals RAMMap / Process Explorer use for "Empty Standby List".
+#[link(name = "ntdll")]
+extern "system" {
+    fn RtlAdjustPrivilege(privilege: u32, enable: u8, current_thread: u8, old_value: *mut u8) -> i32;
+    fn NtSetSystemInformation(class: i32, info: *mut core::ffi::c_void, len: u32) -> i32;
+}
+
+/// SYSTEM_MEMORY_LIST_COMMAND = MemoryPurgeStandbyList
+const SYSTEM_MEMORY_LIST_INFORMATION: i32 = 80;
+const MEMORY_PURGE_STANDBY_LIST: i32 = 4;
+const SE_INCREASE_QUOTA_PRIVILEGE: u32 = 9;
+const SE_PROFILE_SINGLE_PROCESS_PRIVILEGE: u32 = 13;
+
+/// Empty the Windows Standby List once (the Cortex "free up RAM" move).
+/// Needs SeProfileSingleProcessPrivilege + SeIncreaseQuotaPrivilege, so it
+/// requires admin. Returns true if the purge call itself succeeded.
+///
+/// This is a one-time flush, not a persistent setting — Windows refills the
+/// standby list as the PC keeps being used, so there's nothing to revert on
+/// game exit.
+fn purge_standby_list() -> bool {
+    unsafe {
+        for id in [SE_INCREASE_QUOTA_PRIVILEGE, SE_PROFILE_SINGLE_PROCESS_PRIVILEGE] {
+            let mut old: u8 = 0;
+            let status = RtlAdjustPrivilege(id, 1, 0, &mut old);
+            if status != 0 {
+                dlog!("standby purge: RtlAdjustPrivilege({id}) -> {status:#x}");
+            }
+        }
+        let mut cmd: i32 = MEMORY_PURGE_STANDBY_LIST;
+        let status = NtSetSystemInformation(
+            SYSTEM_MEMORY_LIST_INFORMATION,
+            &mut cmd as *mut i32 as *mut core::ffi::c_void,
+            core::mem::size_of::<i32>() as u32,
+        );
+        dlog!("standby purge: NtSetSystemInformation -> {status:#x}");
+        status == 0
+    }
+}
+
+/// Manual "Free RAM now" from the Advanced UI. Needs the same privileges, so
+/// it's gated on elevation like the rest of the admin actions.
+#[tauri::command]
+fn purge_standby_memory() -> Result<(), String> {
+    dlog!("cmd purge_standby_memory");
+    if !is_elevated() {
+        return Err("Slipstream isn't running as administrator, so the standby RAM purge can't run. Re-launch elevated and try again.".into());
+    }
+    if purge_standby_list() {
+        Ok(())
+    } else {
+        Err("Standby RAM purge failed (see debug log).".into())
+    }
+}
+
+#[derive(Serialize, Clone, Debug)]
+struct DetectedGame {
+    name: String,
+    exe_path: String,
+    /// "graphics" = found via loaded rendering DLL (no DB needed);
+    /// "heuristic" = matched stem / store root.
+    method: String,
+}
+
+fn nice_game_name(stem: &str) -> String {
+    // "palworld-win64-shipping" -> "Palworld Win64 Shipping"
+    let spaced = stem.replace(['-', '_'], " ");
+    spaced
+        .split_whitespace()
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Any running process that looks like a game. Two independent signals:
+///
+///   1. Graphics-API detection (loaded d3d/vulkan/opengl DLL) — the elegant
+///      way, no curated list. Catches ZZZ, Star Rail, Palworld, etc.
+///   2. Heuristic (known game stems + store install roots) as a fallback.
+///
+/// Both are filtered for obvious non-games (browsers, OS helpers).
+#[tauri::command]
+fn detect_running_games() -> Vec<DetectedGame> {
+    dlog!("cmd detect_running_games");
+    let mut out = vec![];
+    let mut seen = HashSet::new();
+
+    let mut push = |name: String, path: String, method: &str| {
+        let key = path.to_lowercase();
+        if seen.insert(key) {
+            out.push(DetectedGame { name, exe_path: path, method: method.into() });
+        }
+    };
+
+    // Primary: graphics-API detection.
+    for (stem, exe) in running_graphics_processes() {
+        push(nice_game_name(&stem), exe, "graphics");
+    }
+
+    // Fallback: heuristic for processes whose DLL list we couldn't snapshot
+    // (access denied) but that clearly match a known game or store root.
+    for (name, exe) in running_game_processes() {
+        if !looks_like_game(&name, exe.as_deref()) {
+            continue;
+        }
+        let path = exe
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| name.clone());
+        push(nice_game_name(&exe_file_stem(&path)), path, "heuristic");
+    }
+
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    dlog!("cmd detect_running_games: {} found", out.len());
+    out
+}
+
+#[tauri::command]
+fn start_basic_boost(
+    app: AppHandle,
+    state: State<SharedState>,
+    exe_path: Option<String>,
+) -> Result<StatusPayload, String> {
+    dlog!("cmd start_basic_boost exe={exe_path:?}");
+    // If something is already boosting (e.g. a leftover session), restore it
+    // before engaging so we never flatten the prior power scheme.
+    do_restore(&app, state.inner());
+
+    let store = load_store(&app);
+
+    let want_power = store.settings.boost_power_plan;
+    let prior = if want_power {
+        let p = capture_active_scheme();
+        set_scheme("SCHEME_MIN");
+        p
+    } else {
+        None
+    };
+
+    let procs = running_process_names();
+    let closed = if store.settings.close_background {
+        close_blocklisted(&store.settings.blocklist, &procs, false)
+    } else {
+        vec![]
+    };
+
+    let exes: Vec<String> = exe_path.clone().into_iter().collect();
+    if store.settings.boost_priority {
+        if let Some(exe) = &exe_path {
+            set_priority_high_by_name(&exe_file_stem(exe));
+        }
+    }
+    let tweaks = apply_basic_tweaks(&exes);
+
+    // Free up standby RAM once at launch (one-time flush, no revert needed).
+    if store.settings.purge_standby {
+        if is_elevated() {
+            purge_standby_list();
+        } else {
+            dlog!("basic: standby RAM purge needs admin, skipping (not elevated)");
+        }
+    } else {
+        dlog!("basic: standby RAM purge disabled in settings");
+    }
+
+    {
+        let mut s = state.lock().unwrap();
+        s.basic_active = true;
+        s.basic_exe = exe_path.clone();
+        s.prior_power_scheme = prior;
+        s.closed_processes = closed;
+        s.boost_tweaks_applied = tweaks;
+        s.boost_exes = exes;
+        s.running_game_ids.clear();
+    }
+    emit_status(&app, &state);
+    Ok(status_payload(&state))
+}
+
+#[tauri::command]
+fn stop_basic_boost(app: AppHandle, state: State<SharedState>) -> Result<StatusPayload, String> {
+    dlog!("cmd stop_basic_boost");
+    {
+        let mut s = state.lock().unwrap();
+        s.basic_active = false;
+        s.basic_exe = None;
+    }
+    do_restore(&app, state.inner());
+    Ok(status_payload(&state))
+}
+
 fn watcher_tick(app: &AppHandle, state: &SharedState) {
+    // Basic mode owns the boost lifecycle (Run/Stop), so the watcher must not
+    // auto-revert or re-apply anything while it's active.
+    if state.lock().unwrap().basic_active {
+        return;
+    }
     let store = load_store(app);
     let watched: Vec<GameEntry> = store.games.iter().filter(|g| g.watched).cloned().collect();
 
@@ -1724,6 +2186,17 @@ fn watcher_tick(app: &AppHandle, state: &SharedState) {
         // running game's exe so its AppCompatFlags entry targets the game.
         let exes: Vec<String> = running.iter().map(|g| g.exe_path.clone()).collect();
         let boost_applied = apply_enabled_boost_tweaks(&store.settings, &exes);
+
+        // Free up standby RAM once when a boost engages (one-time flush, no revert).
+        if store.settings.purge_standby {
+            if is_elevated() {
+                purge_standby_list();
+            } else {
+                dlog!("watcher: standby RAM purge needs admin, skipping (not elevated)");
+            }
+        } else {
+            dlog!("watcher: standby RAM purge disabled in settings");
+        }
 
         {
             let mut s = state.lock().unwrap();
@@ -1994,6 +2467,10 @@ fn main() {
             save_toa_log,
             detect_game_processes,
             toggle_toa,
+            detect_running_games,
+            start_basic_boost,
+            stop_basic_boost,
+            purge_standby_memory,
         ])
         .setup(move |app| {
             let _ = APP_HANDLE.set(app.handle().clone());

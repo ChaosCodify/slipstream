@@ -15,6 +15,10 @@
         </span>
         <span class="brand-name">Slipstream</span>
       </div>
+      <div class="mode-switch" id="modeSwitch" role="group" aria-label="Mode">
+        <button class="mode-btn active" data-mode="basic" role="tab" aria-selected="true">Basic</button>
+        <button class="mode-btn" data-mode="advanced" role="tab" aria-selected="false">Advanced</button>
+      </div>
       <div class="status-pill" id="statusPill">
         <span class="dot"></span>
         <span id="statusText">Idle</span>
@@ -31,6 +35,38 @@
       <button class="tab" data-tab="folders" role="tab" aria-selected="false">Folders</button>
       <button class="tab" data-tab="settings" role="tab" aria-selected="false">Settings</button>
     </nav>
+
+    <section id="panel-home" class="panel home">
+      <div class="home-hero">
+        <div class="home-title">Slipstream</div>
+        <div class="home-sub">Boost your PC while you play</div>
+      </div>
+      <div id="gameAskToast" class="game-ask" hidden>
+        <div class="game-ask-name" id="gameAskName">Name</div>
+        <div class="game-ask-sub">Is this a game?</div>
+        <div class="game-ask-actions">
+          <button id="gameAskYes" class="btn primary small">Yes</button>
+          <button id="gameAskNo" class="btn ghost small">No</button>
+        </div>
+      </div>
+      <button id="basicRunBtn" class="run-btn">
+        <span class="run-icon" id="basicRunIcon" aria-hidden="true">▶</span>
+        <span id="basicRunLabel">Run</span>
+      </button>
+      <div class="home-status" id="basicStatus" hidden></div>
+      <label class="toggle-row home-toggle" id="purgeToggleRow">
+        <input type="checkbox" id="togglePurgeStandby" />
+        <span>Free up standby RAM when you hit Run</span>
+      </label>
+      <div class="home-games">
+        <div class="home-games-head">
+          <span id="homeGamesTitle">No games detected</span>
+          <button id="homeRescanBtn" class="btn ghost small" title="Re-check running games">⟳</button>
+        </div>
+        <div id="homeGameList" class="home-game-list"></div>
+        <p class="home-games-hint" id="homeGamesHint">Slipstream watches for games on your PC. Start a game, then hit Run.</p>
+      </div>
+    </section>
 
     <main>
       <section id="panel-games" class="panel active">
@@ -129,6 +165,18 @@
             <input type="checkbox" id="toggleClose" />
             <span>Close blocklisted background apps while a watched game is running</span>
           </label>
+          <label class="toggle-row">
+            <input type="checkbox" id="togglePurgeAuto" />
+            <span>Free up standby RAM when a watched game starts boosting (admin)</span>
+          </label>
+          <div class="boost-row">
+            <div class="boost-row-text">
+              <span class="boost-row-title">Free up standby RAM now</span>
+              <span class="boost-row-sub">Empty the Windows standby memory list once (admin, one-time flush).</span>
+            </div>
+            <button id="purgeRamBtn" class="btn ghost small">Free RAM now</button>
+          </div>
+          <p class="section-hint" id="purgeRamMsg" hidden></p>
         </div>
 
         <div id="sub-tweaks" class="sub-panel">

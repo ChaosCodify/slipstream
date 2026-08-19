@@ -139,6 +139,275 @@ document.querySelectorAll(".sub-tab").forEach((tab) => {
   });
 });
 
+// ---------- basic / advanced mode ----------
+let uiMode = "basic";
+let basicDetected = [];
+let basicSelected = null; // exe_path of the game chosen for the Run button
+let basicRunning = false; // a boost is active (mirrors basic_active in Rust)
+let basicBoostWasRunning = false; // boosted exe was detected running at boost time
+let basicAskDone = new Set(); // exes the user answered Yes/No to this session
+
+const gameAskToast = document.getElementById("gameAskToast");
+let gameAskTarget = null; // current DetectedGame being confirmed
+
+function maybeAskAbout(game) {
+  if (!game || basicAskDone.has(game.exe_path.toLowerCase())) return;
+  // Only prompt for games not already in the library.
+  const known = (store.games || []).some(
+    (g) => g.exe_path.toLowerCase() === game.exe_path.toLowerCase()
+  );
+  if (known) return;
+  gameAskTarget = game;
+  document.getElementById("gameAskName").textContent = game.name;
+  gameAskToast.hidden = false;
+}
+
+function hideAskToast() {
+  gameAskToast.hidden = true;
+  gameAskTarget = null;
+}
+
+document.getElementById("gameAskYes").addEventListener("click", async () => {
+  const game = gameAskTarget;
+  if (!game) return hideAskToast();
+  basicAskDone.add(game.exe_path.toLowerCase());
+  basicSelected = game.exe_path.toLowerCase();
+  hideAskToast();
+  renderHome();
+});
+
+document.getElementById("gameAskNo").addEventListener("click", () => {
+  const game = gameAskTarget;
+  if (game) {
+    basicAskDone.add(game.exe_path.toLowerCase());
+    const name = game.exe_path.split(/[\\/]/).pop() || game.name;
+    if (!store.settings.dismissed_games.some((n) => n.toLowerCase() === name.toLowerCase())) {
+      store.settings.dismissed_games.push(name);
+      invoke("save_settings", { settings: store.settings }).then(
+        () => jslog("info", `dismissed ${name}`),
+        (e) => jslog("error", `dismiss save failed: ${e}`)
+      );
+    }
+  }
+  hideAskToast();
+  renderHome();
+});
+
+function applyMode() {
+  const basic = uiMode === "basic";
+  document.querySelectorAll(".mode-btn").forEach((b) => {
+    const on = b.dataset.mode === uiMode;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+  const tabs = document.querySelector(".tabs");
+  if (tabs) tabs.style.display = basic ? "none" : "";
+  const home = document.getElementById("panel-home");
+  document.querySelectorAll(".panel").forEach((p) => {
+    if (p.id !== "panel-home") p.classList.remove("active");
+  });
+  if (basic) {
+    home.classList.add("active");
+  } else {
+    home.classList.remove("active");
+    const activeTab = document.querySelector(".tab.active");
+    if (activeTab) {
+      document.getElementById(`panel-${activeTab.dataset.tab}`).classList.add("active");
+    }
+  }
+  // Keep the two standby-RAM switches (Basic Run + Advanced boost) in sync —
+  // they both control the same setting.
+  const purgeOn = store.settings.purge_standby === undefined ? true : !!store.settings.purge_standby;
+  document.getElementById("togglePurgeStandby").checked = purgeOn;
+  document.getElementById("togglePurgeAuto").checked = purgeOn;
+  renderHome();
+}
+
+async function setMode(mode) {
+  uiMode = mode;
+  applyMode();
+  try {
+    store.settings.ui_mode = uiMode;
+    store = await invoke("save_settings", { settings: store.settings });
+    jslog("info", `ui_mode set to ${uiMode} and saved`);
+  } catch (e) {
+    jslog("error", `ui_mode save failed: ${e}`);
+  }
+}
+
+document.querySelectorAll(".mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => setMode(btn.dataset.mode));
+});
+
+async function refreshHome() {
+  try {
+    const detected = await invoke("detect_running_games");
+    basicDetected = detected;
+    // If our boosted game exited on its own, stop the boost. Only auto-stop
+    // when the boosted game was actually detected as running at boost time.
+    if (basicRunning && basicSelected && basicBoostWasRunning) {
+      const stillUp = detected.some(
+        (g) => g.exe_path.toLowerCase() === basicSelected.toLowerCase()
+      );
+      if (!stillUp) {
+        jslog("info", "basic: boosted game exited, auto-stopping");
+        await invoke("stop_basic_boost");
+        basicRunning = false;
+        basicBoostWasRunning = false;
+      }
+    }
+    renderHome();
+    // Prompt for a freshly detected game that the user hasn't confirmed yet.
+    const unknown = detected.filter(
+      (g) =>
+        !basicAskDone.has(g.exe_path.toLowerCase()) &&
+        !(store.settings.dismissed_games || []).some(
+          (n) => n.toLowerCase() === g.exe_path.toLowerCase()
+        )
+    );
+    if (gameAskToast.hidden && unknown.length) {
+      maybeAskAbout(unknown[0]);
+    }
+  } catch (e) {
+    jslog("error", `refreshHome failed: ${e}`);
+  }
+}
+
+function renderHome() {
+  if (uiMode !== "basic") return;
+  const runBtn = document.getElementById("basicRunBtn");
+  const runIcon = document.getElementById("basicRunIcon");
+  const runLabel = document.getElementById("basicRunLabel");
+  const list = document.getElementById("homeGameList");
+  const title = document.getElementById("homeGamesTitle");
+  const hint = document.getElementById("homeGamesHint");
+  const statusEl = document.getElementById("basicStatus");
+
+  runBtn.classList.toggle("boosting", basicRunning);
+  runIcon.textContent = basicRunning ? "■" : "▶";
+  runLabel.textContent = basicRunning ? "Stop" : "Run";
+
+  if (basicRunning) {
+    statusEl.hidden = false;
+    statusEl.textContent =
+      `Boosting — everything reverts when you click Stop or the game closes.`;
+  } else {
+    statusEl.hidden = true;
+  }
+
+  // Merge detected running games with the known library so the home screen
+  // always has something selectable. Running games come first, pinned by a
+  // "Running" tag; the rest are the games the user already added.
+  const detectedPaths = new Set(basicDetected.map((g) => g.exe_path.toLowerCase()));
+  const library = (store.games || []).filter(
+    (g) => !detectedPaths.has(g.exe_path.toLowerCase())
+  );
+  const all = [
+    ...basicDetected.map((g) => ({ ...g, running: true })),
+    ...library.map((g) => ({ name: g.name, exe_path: g.exe_path, running: false })),
+  ];
+
+  list.innerHTML = "";
+  if (!all.length) {
+    title.textContent = "No games yet";
+    hint.hidden = false;
+    return;
+  }
+  title.textContent =
+    basicDetected.length > 0
+      ? `${basicDetected.length} game${basicDetected.length > 1 ? "s" : ""} running — ${library.length} in library`
+      : `${all.length} game${all.length > 1 ? "s" : ""} in library`;
+  hint.hidden = true;
+  for (const g of all) {
+    const key = g.exe_path.toLowerCase();
+    const item = document.createElement("div");
+    item.className = "home-game" + (key === basicSelected ? " selected" : "");
+    item.innerHTML = `
+      <span class="hg-icon"><img data-exe="${escapeHtml(key)}" alt="" /></span>
+      <span class="hg-info">
+        <span class="hg-name">${escapeHtml(g.name)}${g.running ? ' <span class="hg-tag">Running</span>' : ""}</span>
+        <span class="hg-path">${escapeHtml(g.exe_path)}</span>
+      </span>
+      <span class="hg-check">${key === basicSelected ? "✓" : ""}</span>
+    `;
+    item.querySelector(".hg-icon img").dataset.exe = key;
+    item.addEventListener("click", () => {
+      basicSelected = key;
+      renderHome();
+    });
+    list.appendChild(item);
+  }
+  loadHomeIcons();
+}
+
+function loadHomeIcons() {
+  document.querySelectorAll(".hg-icon img[data-exe]").forEach((img) => {
+    const exe = img.dataset.exe;
+    delete img.dataset.exe;
+    if (gameIconCache.has(exe)) {
+      img.src = gameIconCache.get(exe) || "";
+      return;
+    }
+    invoke("get_game_icon", { exePath: exe, iconPath: null })
+      .then((url) => {
+        gameIconCache.set(exe, url || "");
+        img.src = url || "";
+      })
+      .catch(() => {
+        gameIconCache.set(exe, "");
+        img.src = "";
+      });
+  });
+}
+
+document.getElementById("basicRunBtn").addEventListener("click", async () => {
+  const flip = (running) => {
+    basicRunning = running;
+    if (!running) basicBoostWasRunning = false;
+    renderHome();
+  };
+  try {
+    if (basicRunning) {
+      // Optimistic: flip the button before the backend finishes restoring.
+      flip(false);
+      await invoke("stop_basic_boost");
+      hideAskToast();
+    } else {
+      // Run boosts regardless of detection (Razer-Cortex style). Pass the
+      // selected/detected game's exe when available so fso targeting + high
+      // priority hit the right process; otherwise boost generically.
+      const game =
+        basicDetected.find((g) => g.exe_path.toLowerCase() === basicSelected) ||
+        basicDetected[0] ||
+        (store.games || []).find((g) => g.exe_path.toLowerCase() === basicSelected) ||
+        null;
+      if (game && !basicSelected) basicSelected = game.exe_path.toLowerCase();
+      // Only auto-stop when boosting a game that was running when we started.
+      // A generic boost (nothing detected) stays until the user clicks Stop.
+      basicBoostWasRunning = !!game && basicDetected.some(
+        (g) => g.exe_path.toLowerCase() === basicSelected.toLowerCase()
+      );
+      // Optimistic: flip the button immediately, then engage the backend.
+      flip(true);
+      await invoke("start_basic_boost", { exePath: game ? game.exe_path : null });
+      hideAskToast();
+    }
+    const st = await invoke("get_status").catch(() => null);
+    if (st) {
+      status = { ...status, ...st };
+      setStatus();
+      renderGames();
+    }
+  } catch (e) {
+    jslog("error", `basic run/stop failed: ${e}`);
+    flip(false);
+  }
+});
+
+document.getElementById("homeRescanBtn").addEventListener("click", () => {
+  refreshHome().catch((e) => jslog("error", `home rescan failed: ${e}`));
+});
+
 // ---------- status ----------
 function setStatus() {
   const pill = document.getElementById("statusPill");
@@ -805,10 +1074,34 @@ document.getElementById("saveSettingsBtn").addEventListener("click", async () =>
   store.settings.boost_power_plan = document.getElementById("togglePowerPlan").checked;
   store.settings.boost_priority = document.getElementById("togglePriority").checked;
   store.settings.close_background = document.getElementById("toggleClose").checked;
+  store.settings.purge_standby = document.getElementById("togglePurgeAuto").checked;
   setDebugLogging(document.getElementById("toggleDebugLogging").checked);
   store.settings.debug_logging = debugLogging;
   store = await invoke("save_settings", { settings: store.settings });
   renderBlocklist();
+});
+
+// Basic mode: keep the standby-RAM toggle in sync immediately (no Save press).
+document.getElementById("togglePurgeStandby").addEventListener("change", async () => {
+  store.settings.purge_standby = document.getElementById("togglePurgeStandby").checked;
+  try {
+    store = await invoke("save_settings", { settings: store.settings });
+  } catch (e) {
+    jslog("error", `save purge toggle failed: ${e}`);
+  }
+});
+// Advanced mode: manual one-shot standby RAM flush.
+document.getElementById("purgeRamBtn").addEventListener("click", async () => {
+  const msg = document.getElementById("purgeRamMsg");
+  try {
+    await invoke("purge_standby_memory");
+    msg.hidden = false;
+    msg.textContent = "Standby RAM flushed.";
+  } catch (e) {
+    msg.hidden = false;
+    msg.textContent = String(e);
+  }
+  setTimeout(() => { msg.hidden = true; }, 4000);
 });
 
 document.getElementById("copyLogPathBtn").addEventListener("click", async () => {
@@ -1054,11 +1347,15 @@ document.getElementById("detectDismissBtn").addEventListener("click", () => {
 // ---------- boot ----------
 async function boot() {
   store = await invoke("get_store");
+  uiMode = store.settings.ui_mode === "advanced" ? "advanced" : "basic";
   document.getElementById("toggleDebugLogging").checked = !!store.settings.debug_logging;
   setDebugLogging(store.settings.debug_logging);
   document.getElementById("togglePowerPlan").checked = store.settings.boost_power_plan;
   document.getElementById("togglePriority").checked = store.settings.boost_priority;
   document.getElementById("toggleClose").checked = store.settings.close_background;
+  const purgeOn = store.settings.purge_standby === undefined ? true : !!store.settings.purge_standby;
+  document.getElementById("togglePurgeStandby").checked = purgeOn;
+  document.getElementById("togglePurgeAuto").checked = purgeOn;
   renderBlocklist();
   renderFolders();
   renderGames();
@@ -1067,6 +1364,16 @@ async function boot() {
   setStatus();
   wireWindowControls();
   refreshTweaks();
+  applyMode();
+
+  // Basic mode: probe for running games + auto-stop on exit. Poll fast so
+  // start/stop feels immediate (the button flips optimistically anyway).
+  refreshHome().catch((e) => jslog("error", `refreshHome at boot failed: ${e}`));
+  setInterval(() => {
+    if (uiMode === "basic") {
+      refreshHome().catch((e) => jslog("error", `refreshHome poll failed: ${e}`));
+    }
+  }, 2000);
 
   document.getElementById("toaBtn").addEventListener("click", () => {
     invoke("toggle_toa").catch((e) => jslog("error", `toggle_toa failed: ${e}`));
