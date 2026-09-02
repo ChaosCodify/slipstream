@@ -3,7 +3,8 @@
 
 <img width="1168" height="388" alt="image1" src="https://github.com/user-attachments/assets/22dbc0e4-b57c-4e9a-9274-ea924126860a" />
 
-
+[![License: GPL-3.0](https://img.shields.io/github/license/ChaosCodify/slipstream)](LICENSE)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Me-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/chaoscodify)
 ## TL;DR
 
 Agent Coded Software: You've been warned
