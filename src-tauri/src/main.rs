@@ -157,6 +157,8 @@ struct Settings {
     ui_mode: String, // "basic" (one-click Run) | "advanced" (full UI)
     #[serde(default = "default_true")]
     purge_standby: bool, // Basic one-click Run also flushes the standby RAM list
+    #[serde(default)]
+    inpoutx64_disabled: bool, // Known Issues: KB5121003 workaround — disables inpoutx64 service
 }
 
 fn default_ui_mode() -> String {
@@ -200,6 +202,7 @@ impl Default for Settings {
             debug_logging: false,
             ui_mode: default_ui_mode(),
             purge_standby: true,
+            inpoutx64_disabled: false,
         }
     }
 }
@@ -660,6 +663,7 @@ struct TweakDef {
     id: &'static str,
     label: &'static str,
     help: &'static str,
+    downfalls: &'static str,
     group: &'static str, // "boost" | "permanent"
     admin: bool,
     reboot: bool,
@@ -671,96 +675,112 @@ fn tweak_defs() -> Vec<TweakDef> {
             id: "fso",
             label: "Disable fullscreen optimizations",
             help: "Prevents the Windows Game Bar layer from double-buffering the game window (fixes a common FPS hit in DX11 games).",
+            downfalls: "Borderless fullscreen may behave slightly differently; some games rely on FSO for Alt+Tab speed. HDR auto-switching can break if your display supports it.",
             group: "boost", admin: false, reboot: false,
         },
         TweakDef {
             id: "dvr",
             label: "Game Bar / Game DVR off",
             help: "Kills background recording & the Game Bar app while playing (false caption capturing).",
+            downfalls: "Instant Replay / clip recording won't work while this is off. Game Bar overlays (chat, performance widget) are also disabled.",
             group: "boost", admin: false, reboot: false,
         },
         TweakDef {
             id: "bgapps",
             label: "Background apps off",
             help: "Disables background execution of Windows Store apps that resume in the background.",
+            downfalls: "UWP apps (Mail, Calendar, Spotify from Store) won't receive notifications or update in background. May break push notifications for Store apps.",
             group: "boost", admin: false, reboot: false,
         },
         TweakDef {
             id: "vfx",
             label: "Visual effects: best performance",
             help: "Sets Windows visual effects to the 'best performance' preset (no shadows/animations).",
+            downfalls: "Font smoothing (ClearType) turns off — text looks rough. Window drag animations, thumbnails in Explorer, and smooth scrolling all disappear.",
             group: "boost", admin: false, reboot: false,
         },
         TweakDef {
             id: "netthrottle",
             label: "NetworkThrottlingIndex off",
             help: "Lifts Windows' multimedia network throttling cap (0xffffffff). Only helps if you're network-bound.",
+            downfalls: "Disables a system-level throttle meant to prevent network starvation of other apps. Could cause stutter if other processes are competing for bandwidth.",
             group: "boost", admin: true, reboot: false,
         },
         TweakDef {
             id: "sysresp",
             label: "SystemResponsiveness 10",
             help: "MMCSS responsiveness — Windows rounds SystemResponsiveness /10, so min useful value is 10 (of 1000 units).",
+            downfalls: "Non-gaming background tasks (antivirus scans, file indexing, Windows Update) get less CPU headroom. Could cause brief hitches if heavy I/O happens during play.",
             group: "boost", admin: true, reboot: false,
         },
         TweakDef {
             id: "pwrthrottle",
             label: "Power throttling off",
             help: "Disables Windows dynamic power throttling for the whole machine.",
+            downfalls: "Laptop battery drains faster — background tasks run at full CPU instead of being throttled. Thermals may climb on thin laptops.",
             group: "boost", admin: true, reboot: false,
         },
         TweakDef {
             id: "hags",
             label: "Hardware-accelerated GPU scheduling",
             help: "Toggles the Windows HAGS feature. Affects frame timing & VRR — results vary by GPU/driver. Reboot applies.",
+            downfalls: "Some older GPU/driver combos crash or show stutter with HAGS on. Can break OBS capture if you stream. Rollback requires a reboot.",
             group: "permanent", admin: true, reboot: true,
         },
         TweakDef {
             id: "dynamictick",
             label: "Dynamic tick off",
             help: "bcdedit disabledynamictick. Trades idle power for timer responsiveness. Widely claimed to cut input lag — results vary by hardware; benchmark before/after.",
+            downfalls: "CPU won't idle as deeply — noticeable battery drain on laptops. Some systems see no measurable improvement. Requires reboot.",
             group: "permanent", admin: true, reboot: true,
         },
         TweakDef {
             id: "hpet",
             label: "HPET off (useplatformclock)",
             help: "Removes the High Precision Event Timer from the boot entry. Timing results are inconsistent — some report FPS drops alongside smoother pacing. YMMV; benchmark before/after.",
+            downfalls: "Some audio interfaces and DAWs rely on HPET for precise timing — can cause audio crackle. Some games' anti-cheat uses HPET timestamps. Requires reboot.",
             group: "permanent", admin: true, reboot: true,
         },
         TweakDef {
             id: "priority",
             label: "Win32PrioritySeparation 0x1A",
             help: "Makes Windows prefer the foreground process's thread scheduling. One of the most-misunderstood tweaks — little solid evidence, results vary; benchmark before/after. Revert restores the default 0x02.",
+            downfalls: "Background tasks get deprioritized hard — file transfers, backups, and antivirus scans will slow down while a game is running.",
             group: "permanent", admin: true, reboot: false,
         },
         TweakDef {
             id: "memint",
             label: "Memory integrity (VBS) off",
             help: "Disables Hypervisor-Enforced Code Integrity (memory integrity). Only turn it off if a driver you need can't load under HVCI — hover '?' for exactly what you lose. Reboot applies.",
+            downfalls: "Loses kernel-level driver vetting — a malicious or buggy driver gets full kernel access. Core isolation / VBS hardening goes away. Security features like Credential Guard stop working.",
             group: "permanent", admin: true, reboot: true,
         },
         TweakDef {
             id: "diag",
             label: "DiagTrack service off",
             help: "Stops the Connected User Experiences & Telemetry service.",
+            downfalls: "Windows loses some diagnostic/telemetry data — can affect Windows Error Reporting and app crash diagnostics. May break some enterprise management tools.",
             group: "permanent", admin: true, reboot: false,
         },
         TweakDef {
             id: "sysmain",
             label: "SysMain (Superfetch) off",
             help: "Stops SysMain. Usually pointless on SSD, occasionally helps HDD reads — benchmark first.",
+            downfalls: "App launch may be slower on HDD systems since Superfetch won't pre-load frequently used data into RAM. SSD users see little to no difference.",
             group: "permanent", admin: true, reboot: false,
         },
         TweakDef {
             id: "mpo",
             label: "Disable Multiplane Overlay (MPO)",
             help: "Stops the GPU from compositing windows as separate hardware planes. A troubleshooting tweak for flicker, black flashes, or stutter — especially with G-Sync/FreeSync. Apply only if you're actually seeing those symptoms. Reboot applies.",
+            downfalls: "Increases GPU composition overhead — can raise GPU usage slightly. Window compositing falls back to software paths on some configs. Only use if you have actual flicker issues.",
             group: "permanent", admin: true, reboot: true,
         },
         TweakDef {
             id: "corepark",
             label: "Disable core parking",
             help: "Keeps all CPU cores awake during light load so bursty games don't wait for a parked core to wake. Changes the currently active power plan — apply after the plan swaps to High Performance. Revert restores the default 5%.",
+            downfalls: "All cores run at minimum frequency even when idle — higher idle power draw, especially on desktops. No real benefit on systems that already park cores well.",
             group: "permanent", admin: true, reboot: false,
         },
     ]
@@ -1735,6 +1755,7 @@ struct TweakView {
     id: String,
     label: String,
     help: String,
+    downfalls: String,
     group: String, // "boost" | "permanent"
     admin: bool,
     reboot: bool,
@@ -1759,6 +1780,7 @@ fn tweaks_view(settings: &Settings) -> Vec<TweakView> {
             id: t.id.to_string(),
             label: t.label.to_string(),
             help: t.help.to_string(),
+            downfalls: t.downfalls.to_string(),
             group: t.group.to_string(),
             admin: t.admin,
             reboot: t.reboot,
@@ -1945,6 +1967,136 @@ fn purge_standby_memory() -> Result<(), String> {
     } else {
         Err("Standby RAM purge failed (see debug log).".into())
     }
+}
+
+/// Restart the graphics driver without rebooting — the software equivalent of
+/// Win+Ctrl+Shift+B. Enumerates display adapters with `Get-PnpDevice` and
+/// restarts each via `pnputil /restart-device`. Needs admin; the screen will
+/// flicker and GPU-accelerated windows may need a moment to recover.
+#[tauri::command]
+fn restart_gpu_driver() -> Result<String, String> {
+    dlog!("cmd restart_gpu_driver");
+    if !is_elevated() {
+        return Err("Slipstream isn't running as administrator — restarting the GPU driver needs admin. Re-launch elevated and try again.".into());
+    }
+    let list_script = "Get-PnpDevice -Class Display -Status OK -ErrorAction SilentlyContinue | Where-Object { $_.InstanceId } | ForEach-Object { $_.InstanceId }";
+    let out = hidden_command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &list_script])
+        .output();
+    let ids: Vec<String> = match out {
+        Ok(o) => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Err(e) => return Err(format!("Couldn't enumerate display adapters: {e}")),
+    };
+    if ids.is_empty() {
+        return Err("No display adapters found.".into());
+    }
+    dlog!("restart_gpu_driver: {} adapter(s): {ids:?}", ids.len());
+    let mut restarted = 0;
+    for id in &ids {
+        let st = hidden_command("pnputil").args(["/restart-device", id]).status();
+        match st {
+            Ok(s) if s.success() => {
+                restarted += 1;
+                dlog!("restart_gpu_driver: {id} restarted");
+            }
+            other => dlog!("restart_gpu_driver: {id} -> {other:?}"),
+        }
+    }
+    if restarted == 0 {
+        Err("GPU driver restart failed for all adapters (see debug log).".into())
+    } else {
+        Ok(format!("Restarted {restarted} display adapter(s)."))
+    }
+}
+
+// ---------- known issues ----------
+
+/// Check if the inpoutx64 driver service exists on this machine (KB5121003).
+fn has_inpoutx64() -> bool {
+    // Query the service key under HKLM — faster than shelling out to `sc query`.
+    let reg = std::process::Command::new("reg")
+        .args(["query",
+            r"HKLM\SYSTEM\CurrentControlSet\Services\inpoutx64",
+            "/f", "DisplayName", "/t", "REG_SZ"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    match reg {
+        Ok(o) => o.status.success(),
+        Err(_) => false,
+    }
+}
+
+/// Get the current Start type of the inpoutx64 service. Returns the raw DWORD
+/// value (2=auto, 3=demand, 4=disabled) or None if the service isn't present.
+fn inpoutx64_start_value() -> Option<u32> {
+    let reg = std::process::Command::new("reg")
+        .args(["query",
+            r"HKLM\SYSTEM\CurrentControlSet\Services\inpoutx64",
+            "/v", "Start"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&reg.stdout);
+    // Output lines look like:  Start    REG_DWORD    0x3
+    for line in text.lines() {
+        let lower = line.to_lowercase();
+        if lower.starts_with("start") && lower.contains("0x") {
+            let hex = lower.split("0x").nth(1)?.trim();
+            return u32::from_str_radix(hex, 16).ok();
+        }
+    }
+    None
+}
+
+/// Disable or re-enable the inpoutx64 service. Returns Ok(()) on success.
+/// `disable=true` sets start=disabled + stops; `disable=false` sets
+/// start=demand + starts (revert to pre-fix state).
+fn set_inpoutx64(disable: bool) -> Result<(), String> {
+    if !has_inpoutx64() {
+        return Err("inpoutx64 service not found on this machine.".into());
+    }
+    let start_val = if disable { "disabled" } else { "demand" };
+    let cfg = std::process::Command::new("sc")
+        .args(["config", "inpoutx64", &format!("start={start_val}")])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("sc config failed: {e}"))?;
+    if !cfg.status.success() {
+        let msg = String::from_utf8_lossy(&cfg.stderr);
+        return Err(format!("sc config failed: {msg}"));
+    }
+    // Stop (if disabling) or start (if re-enabling).
+    let action = if disable { "stop" } else { "start" };
+    let act = std::process::Command::new("sc")
+        .args([action, "inpoutx64"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("sc {action} failed: {e}"))?;
+    dlog!("inpoutx64 {action} -> {}", act.status);
+    Ok(())
+}
+
+/// Returns (service_present, currently_disabled) for the frontend.
+#[tauri::command]
+fn get_inpoutx64_state() -> (bool, bool) {
+    let present = has_inpoutx64();
+    let disabled = present && inpoutx64_start_value() == Some(4);
+    dlog!("cmd get_inpoutx64_state: present={present} disabled={disabled}");
+    (present, disabled)
+}
+
+/// Disable (true) or re-enable (false) the inpoutx64 service (KB5121003 fix).
+#[tauri::command]
+fn set_inpoutx64_state(disable: bool) -> Result<(), String> {
+    dlog!("cmd set_inpoutx64_state disable={disable}");
+    if !is_elevated() {
+        return Err("Needs administrator — re-launch Slipstream elevated and try again.".into());
+    }
+    set_inpoutx64(disable)
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -2471,6 +2623,9 @@ fn main() {
             start_basic_boost,
             stop_basic_boost,
             purge_standby_memory,
+            restart_gpu_driver,
+            get_inpoutx64_state,
+            set_inpoutx64_state,
         ])
         .setup(move |app| {
             let _ = APP_HANDLE.set(app.handle().clone());

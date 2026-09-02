@@ -363,6 +363,40 @@ body {
 }
 .mode-btn.active:hover { color: var(--text-strong); }
 
+.topbar-btn {
+  flex: none;
+  -webkit-app-region: no-drag;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 12px 5px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+.topbar-btn:hover {
+  color: var(--text);
+  border-color: var(--line-hi);
+}
+.topbar-btn.armed {
+  color: #fff;
+  background: #c0392b;
+  border-color: #c0392b;
+  box-shadow: 0 0 10px rgba(192, 57, 43, 0.45);
+}
+.topbar-msg {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted-2);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tabs {
   flex: none;
   height: 38px;
@@ -622,6 +656,9 @@ main {
 .boost-row-text { display: flex; flex-direction: column; gap: 2px; }
 .boost-row-title { font-size: 13px; color: var(--text); }
 .boost-row-sub { font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+.known-issue code { font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.known-warn { color: #e67e22; margin-top: 6px; }
 .home-games {
   min-width: 340px;
   max-width: 520px;
@@ -1007,6 +1044,7 @@ input[type="text"]:focus { outline: none; border-color: var(--line-hi); box-shad
   background: var(--panel-2);
   cursor: pointer;
   user-select: none;
+  position: relative;
   transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
 .tlist-item:hover { border-color: var(--line-hi); }
@@ -1314,6 +1352,7 @@ input[type="text"]:focus { outline: none; border-color: var(--line-hi); box-shad
   display: flex;
   flex-direction: column;
   gap: 6px;
+  position: relative;
 }
 .tweak-perm.needs-admin { opacity: 0.6; }
 .tweak-perm .tweak-head { display: flex; align-items: center; gap: 10px; }

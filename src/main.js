@@ -1104,6 +1104,39 @@ document.getElementById("purgeRamBtn").addEventListener("click", async () => {
   setTimeout(() => { msg.hidden = true; }, 4000);
 });
 
+// One-click GPU driver restart (Win+Ctrl+Shift+B equivalent). First tap arms
+// the button (red "Restart now?"), second tap fires — the screen will flicker.
+let gpuArmed = false;
+let gpuArmTimer = null;
+document.getElementById("restartGpuBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("restartGpuBtn");
+  const msg = document.getElementById("restartGpuMsg");
+  if (!gpuArmed) {
+    gpuArmed = true;
+    btn.classList.add("armed");
+    btn.textContent = "Restart now?";
+    gpuArmTimer = setTimeout(() => {
+      gpuArmed = false;
+      btn.classList.remove("armed");
+      btn.textContent = "⟳ Restart GPU";
+    }, 3000);
+    return;
+  }
+  gpuArmed = false;
+  clearTimeout(gpuArmTimer);
+  btn.classList.remove("armed");
+  btn.textContent = "⟳ Restart GPU";
+  try {
+    const r = await invoke("restart_gpu_driver");
+    msg.hidden = false;
+    msg.textContent = r;
+  } catch (e) {
+    msg.hidden = false;
+    msg.textContent = String(e);
+  }
+  setTimeout(() => { msg.hidden = true; }, 5000);
+});
+
 document.getElementById("copyLogPathBtn").addEventListener("click", async () => {
   const path = await invoke("get_debug_log_path");
   await navigator.clipboard.writeText(path);
@@ -1171,6 +1204,15 @@ function renderTweaks() {
         row.title = "Requires admin — applied because Slipstream is elevated";
       }
     }
+    if (t.downfalls) {
+      const tip = document.createElement("span");
+      tip.className = "tweak-info";
+      tip.textContent = "?";
+      tip.setAttribute("role", "button");
+      tip.setAttribute("aria-label", "Downsides");
+      tip.dataset.tip = t.downfalls;
+      row.appendChild(tip);
+    }
     const help = document.createElement("span");
     help.className = "tweak-help";
     help.textContent = t.help;
@@ -1198,13 +1240,14 @@ function renderTweaks() {
       ${t.admin ? '<span class="sh-icon">🛡</span>' : ""}
       ${t.reboot ? '<span class="reboot-chip">reboot</span>' : ""}
     `;
-    if (t.tip) {
+    const downfallsText = [t.downfalls, t.tip].filter(Boolean).join("\n\n");
+    if (downfallsText) {
       const tip = document.createElement("span");
       tip.className = "tweak-info";
       tip.textContent = "?";
       tip.setAttribute("role", "button");
-      tip.setAttribute("aria-label", "What do I lose?");
-      tip.dataset.tip = t.tip;
+      tip.setAttribute("aria-label", "Downsides");
+      tip.dataset.tip = downfallsText;
       label.appendChild(tip);
     }
 
@@ -1384,6 +1427,9 @@ async function boot() {
     () => {}
   );
 
+  // Known Issues: probe for affected drivers.
+  renderKnownIssues().catch((e) => jslog("error", `renderKnownIssues failed: ${e}`));
+
   refreshSteamPicker().catch((e) => jslog("error", `refreshSteamPicker failed: ${e}`));
   refreshDetect().catch((e) => jslog("error", `refreshDetect at boot failed: ${e}`));
   setInterval(() => {
@@ -1405,5 +1451,53 @@ listen("slipstream://status", (event) => {
   setStatus();
   renderGames();
 });
+
+// ---------- known issues ----------
+
+async function renderKnownIssues() {
+  const list = document.getElementById("knownIssuesList");
+  const noneHint = document.getElementById("knownIssuesNone");
+  list.innerHTML = "";
+
+  try {
+    const [present, disabled] = await invoke("get_inpoutx64_state");
+    if (!present) {
+      noneHint.hidden = false;
+      return;
+    }
+    noneHint.hidden = true;
+
+    const row = document.createElement("label");
+    row.className = "toggle-row known-issue";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = disabled;
+    const lbl = document.createElement("span");
+    lbl.innerHTML = "Disable <code>inpoutx64</code> driver (fixes KB5121003 crash / reboot bug)";
+    row.appendChild(cb);
+    row.appendChild(lbl);
+    list.appendChild(row);
+
+    const warn = document.createElement("p");
+    warn.className = "section-hint known-warn";
+    warn.textContent = "This driver powers RGB lighting sync and fan-curve software (Corsair iCUE etc.). Disabling it will break those tools until you turn it back on. RGB/fan software may silently re-enable it on update.";
+    list.appendChild(warn);
+
+    cb.addEventListener("change", async () => {
+      try {
+        await invoke("set_inpoutx64_state", { disable: cb.checked });
+        store.settings.inpoutx64_disabled = cb.checked;
+        store = await invoke("save_settings", { settings: store.settings });
+      } catch (e) {
+        jslog("error", `set_inpoutx64_state failed: ${e}`);
+        cb.checked = !cb.checked;
+      }
+    });
+  } catch (e) {
+    jslog("error", `get_inpoutx64_state failed: ${e}`);
+    noneHint.hidden = false;
+  }
+}
 
 boot();
