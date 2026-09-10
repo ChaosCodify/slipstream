@@ -123,7 +123,6 @@
           <button class="sub-tab" data-sub="close" role="tab" aria-selected="false">Always close</button>
           <button class="sub-tab" data-sub="boost" role="tab" aria-selected="false">Boost behavior</button>
           <button class="sub-tab" data-sub="tweaks" role="tab" aria-selected="false">Windows tweaks</button>
-          <button class="sub-tab" data-sub="known" role="tab" aria-selected="false">Known issues</button>
           <button class="sub-tab" data-sub="debug" role="tab" aria-selected="false">Debug</button>
         </nav>
 
@@ -158,20 +157,28 @@
           <p class="section-hint">These apply to every game unless a game overrides them in its own Options panel.</p>
           <label class="toggle-row">
             <input type="checkbox" id="togglePowerPlan" />
+            <span class="tweak-tier tier-medium" title="Medium risk — may affect laptop battery"></span>
             <span>Switch Windows to High Performance power plan while watched game is running</span>
           </label>
+          <span class="tweak-eff">Effectiveness: High on desktops; moderate on laptops (trade-off with battery/thermals).</span>
           <label class="toggle-row">
             <input type="checkbox" id="togglePriority" />
-            <span>Raise the game's process priority to High (off by default — this is the only action that touches the game's own process; safest to leave off for EAC games like Tokon)</span>
+            <span class="tweak-tier tier-medium" title="Medium risk — can cause issues with anti-cheat"></span>
+            <span>Raise the game's process priority to High (off by default — touches the game's own process; leave off for anti-cheat protected games)</span>
           </label>
+          <span class="tweak-eff">Effectiveness: Variable — helps CPU-bound games on systems with heavy background load; little evidence otherwise.</span>
           <label class="toggle-row">
             <input type="checkbox" id="toggleClose" />
+            <span class="tweak-tier tier-low" title="Low risk — safe to enable"></span>
             <span>Close blocklisted background apps while a watched game is running</span>
           </label>
+          <span class="tweak-eff">Effectiveness: High if you have &lt;8GB RAM or many apps running; negligible on 16GB+.</span>
           <label class="toggle-row">
             <input type="checkbox" id="togglePurgeAuto" />
+            <span class="tweak-tier tier-low" title="Low risk — one-time memory flush"></span>
             <span>Free up standby RAM when a watched game starts boosting (admin)</span>
           </label>
+          <span class="tweak-eff">Effectiveness: High when standby RAM is large (&gt;2GB); one-time flush, not persistent.</span>
           <div class="boost-row">
             <div class="boost-row-text">
               <span class="boost-row-title">Free up standby RAM now</span>
@@ -196,23 +203,16 @@
           <div id="permanentTweakList" class="tweak-list"></div>
         </div>
 
-        <div id="sub-known" class="sub-panel">
-          <div class="section-head">
-            <h2 class="section-title" style="margin:0">Known issues</h2>
-          </div>
-          <p class="section-hint">Temporary workarounds for active Windows/driver bugs. These will be removed once Microsoft ships real fixes.</p>
-          <div id="knownIssuesList"></div>
-          <p id="knownIssuesNone" class="section-hint" hidden>No known issues detected on this machine.</p>
-        </div>
-
         <div id="sub-debug" class="sub-panel">
           <div class="section-head">
             <h2 class="section-title" style="margin:0">Debug</h2>
           </div>
           <label class="toggle-row">
             <input type="checkbox" id="toggleDebugLogging" />
+            <span class="tweak-tier tier-low" title="Low risk — diagnostic only, no performance impact"></span>
             <span>Debug logging (writes <code>slipstream-debug.log</code> next to the exe and mirrors every line to the toa.sh console)</span>
-          </label>          <div class="add-row">
+          </label>
+          <span class="tweak-eff">Effectiveness: None for performance — use only when troubleshooting issues.</span>          <div class="add-row">
             <button id="copyLogPathBtn" class="btn ghost small">Copy log path</button>
             <button id="toaBtn" class="btn ghost small">Open debug console (toa.sh)</button>
           </div>
@@ -325,6 +325,18 @@
         <div class="modal-actions">
           <button id="gameOptionsClose" class="btn ghost small">Close</button>
           <button id="gameOptionsSave" class="btn primary small">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="inpoutx64Modal" class="modal" hidden>
+      <div class="modal-card">
+        <h3>Known issue detected: inpoutx64 driver</h3>
+        <p class="section-hint">Windows KB5121003 (August 2026) is incompatible with the <code>inpoutx64</code> driver. This can cause game crashes, <code>EXCEPTION_ACCESS_VIOLATION</code> errors, or full system reboots.</p>
+        <p class="section-hint">This driver is used by RGB lighting and fan-control software (Corsair iCUE, etc.). Disabling it will break those tools until you re-enable.</p>
+        <div class="modal-actions">
+          <button id="inpoutx64Dismiss" class="btn ghost small">Ignore for now</button>
+          <button id="inpoutx64Disable" class="btn primary small">Disable inpoutx64</button>
         </div>
       </div>
     </div>

@@ -1014,13 +1014,19 @@ function renderBlocklist() {
 
   for (const proc of all) {
     const enabled = !suspended.has(proc.toLowerCase());
-    wrap.appendChild(makeToggleItem(
+    const item = makeToggleItem(
       proc,
       enabled,
       "Will close",
       "Kept open",
       (_n, checked) => setProcState(proc, checked)
-    ));
+    );
+    const tier = document.createElement("span");
+    tier.className = "tweak-tier tier-low";
+    tier.title = "Low risk — reversible per-process";
+    const nameSpan = item.querySelector(".tlist-name");
+    if (nameSpan) item.insertBefore(tier, nameSpan);
+    wrap.appendChild(item);
   }
 }
 
@@ -1191,7 +1197,6 @@ function renderTweaks() {
         jslog("error", `set_boost_tweak(${t.id}) failed: ${err}`);
         await refreshTweaksData();
       }
-      // Re-render from backend truth so the switch always reflects saved state.
       renderTweaks();
     });
     row.classList.add("tweak-row");
@@ -1204,6 +1209,13 @@ function renderTweaks() {
         row.title = "Requires admin — applied because Slipstream is elevated";
       }
     }
+    // Tier dot (insert before the name span)
+    const tierDot = document.createElement("span");
+    tierDot.className = "tweak-tier tier-" + t.tier;
+    tierDot.title = t.tier === "high" ? "High risk — may break things" : t.tier === "medium" ? "Medium risk — test after enabling" : "Low risk — safe to toggle";
+    const nameSpan = row.querySelector(".tlist-name");
+    row.insertBefore(tierDot, nameSpan);
+    // Downfalls tooltip
     if (t.downfalls) {
       const tip = document.createElement("span");
       tip.className = "tweak-info";
@@ -1220,6 +1232,12 @@ function renderTweaks() {
     wrap.className = "tweak-wrap";
     wrap.appendChild(row);
     wrap.appendChild(help);
+    if (t.effectiveness) {
+      const eff = document.createElement("span");
+      eff.className = "tweak-eff";
+      eff.textContent = "Effectiveness: " + t.effectiveness;
+      wrap.appendChild(eff);
+    }
     boostList.appendChild(wrap);
   }
 
@@ -1236,6 +1254,7 @@ function renderTweaks() {
     const label = document.createElement("div");
     label.className = "tweak-title";
     label.innerHTML = `
+      <span class="tweak-tier tier-${t.tier}" title="${t.tier === "high" ? "High risk — may break things" : t.tier === "medium" ? "Medium risk — test after enabling" : "Low risk — safe to toggle"}"></span>
       ${escapeHtml(t.label)}
       ${t.admin ? '<span class="sh-icon">🛡</span>' : ""}
       ${t.reboot ? '<span class="reboot-chip">reboot</span>' : ""}
@@ -1289,6 +1308,12 @@ function renderTweaks() {
 
     row.appendChild(head);
     row.appendChild(help);
+    if (t.effectiveness) {
+      const eff = document.createElement("div");
+      eff.className = "tweak-eff";
+      eff.textContent = "Effectiveness: " + t.effectiveness;
+      row.appendChild(eff);
+    }
     permList.appendChild(row);
   }
   jslog("info", `renderTweaks: ${boostTweaks.length} boost, ${permTweaks.length} permanent, elevated=${elevated}`);
@@ -1428,7 +1453,7 @@ async function boot() {
   );
 
   // Known Issues: probe for affected drivers.
-  renderKnownIssues().catch((e) => jslog("error", `renderKnownIssues failed: ${e}`));
+  checkInpoutx64().catch((e) => jslog("error", `checkInpoutx64 failed: ${e}`));
 
   refreshSteamPicker().catch((e) => jslog("error", `refreshSteamPicker failed: ${e}`));
   refreshDetect().catch((e) => jslog("error", `refreshDetect at boot failed: ${e}`));
@@ -1454,49 +1479,25 @@ listen("slipstream://status", (event) => {
 
 // ---------- known issues ----------
 
-async function renderKnownIssues() {
-  const list = document.getElementById("knownIssuesList");
-  const noneHint = document.getElementById("knownIssuesNone");
-  list.innerHTML = "";
-
+async function checkInpoutx64() {
   try {
     const [present, disabled] = await invoke("get_inpoutx64_state");
-    if (!present) {
-      noneHint.hidden = false;
-      return;
-    }
-    noneHint.hidden = true;
-
-    const row = document.createElement("label");
-    row.className = "toggle-row known-issue";
-
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = disabled;
-    const lbl = document.createElement("span");
-    lbl.innerHTML = "Disable <code>inpoutx64</code> driver (fixes KB5121003 crash / reboot bug)";
-    row.appendChild(cb);
-    row.appendChild(lbl);
-    list.appendChild(row);
-
-    const warn = document.createElement("p");
-    warn.className = "section-hint known-warn";
-    warn.textContent = "This driver powers RGB lighting sync and fan-curve software (Corsair iCUE etc.). Disabling it will break those tools until you turn it back on. RGB/fan software may silently re-enable it on update.";
-    list.appendChild(warn);
-
-    cb.addEventListener("change", async () => {
+    if (!present || disabled) return;
+    const modal = document.getElementById("inpoutx64Modal");
+    modal.hidden = false;
+    document.getElementById("inpoutx64Dismiss").onclick = () => { modal.hidden = true; };
+    document.getElementById("inpoutx64Disable").onclick = async () => {
       try {
-        await invoke("set_inpoutx64_state", { disable: cb.checked });
-        store.settings.inpoutx64_disabled = cb.checked;
+        await invoke("set_inpoutx64_state", { disable: true });
+        store.settings.inpoutx64_disabled = true;
         store = await invoke("save_settings", { settings: store.settings });
       } catch (e) {
         jslog("error", `set_inpoutx64_state failed: ${e}`);
-        cb.checked = !cb.checked;
       }
-    });
+      modal.hidden = true;
+    };
   } catch (e) {
-    jslog("error", `get_inpoutx64_state failed: ${e}`);
-    noneHint.hidden = false;
+    jslog("error", `checkInpoutx64 failed: ${e}`);
   }
 }
 

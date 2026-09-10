@@ -657,8 +657,7 @@ main {
 .boost-row-title { font-size: 13px; color: var(--text); }
 .boost-row-sub { font-size: 11px; color: var(--muted); line-height: 1.4; }
 
-.known-issue code { font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
-.known-warn { color: #e67e22; margin-top: 6px; }
+
 .home-games {
   min-width: 340px;
   max-width: 520px;
@@ -1025,6 +1024,7 @@ input[type="text"]:focus { outline: none; border-color: var(--line-hi); box-shad
 .toggle-row input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
 .toggle-row.tri { justify-content: space-between; }
 .toggle-row.tri span { flex: 1; }
+.toggle-row + .tweak-eff { margin-top: -4px; margin-bottom: 4px; }
 .select.small { padding: 5px 8px; font-size: 11px; min-width: 104px; }
 
 .keep-open { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 12px; }
@@ -1337,10 +1337,31 @@ input[type="text"]:focus { outline: none; border-color: var(--line-hi); box-shad
 .tweak-row.needs-admin { opacity: 0.45; }
 .tweak-row.needs-admin:hover { opacity: 0.8; border-color: var(--line-hi); }
 
+.tweak-tier {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+.tier-low { background: #2ecc71; }
+.tier-medium { background: #f1c40f; }
+.tier-high { background: #e74c3c; }
+
 .tweak-help {
   font-size: 11px;
   color: var(--muted-2);
   padding-left: 30px;
+}
+
+.tweak-eff {
+  font-size: 10px;
+  font-style: italic;
+  color: var(--muted);
+  padding-left: 30px;
+  margin-top: -2px;
 }
 
 .tweak-list { display: flex; flex-direction: column; gap: 6px; }
