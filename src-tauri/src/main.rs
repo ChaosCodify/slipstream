@@ -27,7 +27,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
-use sysinfo::System;
+use sysinfo::{ProcessesToUpdate, System};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use uuid::Uuid;
 
@@ -41,6 +41,26 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static DEBUG_LOGGING: AtomicBool = AtomicBool::new(false);
+
+// One long-lived process table, reused by every poll. Previously each call
+// built a fresh `System::new_all()` and re-enumerated every process from
+// scratch; the UI polls this every 2s/5s, so a single session was doing
+// thousands of full rebuilds. A reused instance + targeted
+// `refresh_processes` keeps the cached map alive between polls and makes dead
+// processes get dropped (`remove_dead = true`) instead of accumulating.
+// Mutex-guarded because Tauri command threads and the watcher thread share it.
+static PROCESS_SYS: OnceLock<Mutex<System>> = OnceLock::new();
+
+fn process_sys() -> std::sync::MutexGuard<'static, System> {
+    PROCESS_SYS
+        .get_or_init(|| Mutex::new(System::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+// Set to true when the app is tearing down so the watcher thread can exit its
+// loop instead of sleeping/running through process enumeration one last time.
+static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 fn log_dir() -> PathBuf {
     // Save the log right next to the exe, wherever that exe happens to live
@@ -77,6 +97,12 @@ fn log_msg(msg: &str) {
     }
     let path = log_file();
     let line = format!("[{}] {}\n", now_stamp(), msg);
+    // Hard-cap the log file. With debug logging on the watcher appends a line
+    // every couple of seconds, so left alone the file would grow without bound.
+    const LOG_MAX_BYTES: u64 = 8 * 1024 * 1024;
+    if fs::metadata(&path).map(|m| m.len() > LOG_MAX_BYTES).unwrap_or(false) {
+        let _ = fs::write(&path, b"");
+    }
     if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = f.write_all(line.as_bytes());
     }
@@ -301,8 +327,8 @@ fn set_scheme(guid_or_alias: &str) {
 }
 
 fn running_process_names() -> HashSet<String> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let mut sys = process_sys();
+    sys.refresh_processes(ProcessesToUpdate::All, true);
     sys.processes()
         .values()
         .map(|p| p.name().to_string_lossy().to_lowercase())
@@ -438,8 +464,8 @@ fn looks_like_game(name: &str, exe: Option<&std::path::Path>) -> bool {
 
 #[allow(clippy::type_complexity)]
 fn running_game_processes() -> Vec<(String, Option<PathBuf>)> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let mut sys = process_sys();
+    sys.refresh_processes(ProcessesToUpdate::All, true);
     sys.processes()
         .values()
         .map(|p| (p.name().to_string_lossy().to_string(), p.exe().map(|x| x.to_path_buf())))
@@ -462,20 +488,31 @@ const GRAPHICS_DLLS: &[&str] = &[
 ];
 
 fn process_loaded_graphics_dll(pid: u32) -> Option<String> {
-    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W, TH32CS_SNAPMODULE,
     };
 
+    // RAII guard so the snapshot handle is released on every path — including
+    // the early returns below — instead of relying on a single manual close.
+    struct Snapshot(HANDLE);
+    impl Drop for Snapshot {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = CloseHandle(self.0);
+            }
+        }
+    }
+
     let snap = match unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid) } {
-        Ok(s) => s,
+        Ok(s) => Snapshot(s),
         Err(_) => return None,
     };
     let mut entry = MODULEENTRY32W::default();
     entry.dwSize = std::mem::size_of::<MODULEENTRY32W>() as u32;
     let mut found: Option<String> = None;
     unsafe {
-        let mut first = Module32FirstW(snap, &mut entry).is_ok();
+        let mut first = Module32FirstW(snap.0, &mut entry).is_ok();
         while first {
             let name = wide_to_string(&entry.szModule);
             let lower = name.to_lowercase();
@@ -483,9 +520,8 @@ fn process_loaded_graphics_dll(pid: u32) -> Option<String> {
                 found = Some(dll.to_string());
                 break;
             }
-            first = Module32NextW(snap, &mut entry).is_ok();
+            first = Module32NextW(snap.0, &mut entry).is_ok();
         }
-        let _ = CloseHandle(snap);
     }
     found
 }
@@ -554,16 +590,26 @@ fn process_has_visible_window(pid: u32) -> bool {
 ///   2. Has a visible top-level window with nonzero size,
 ///   3. Name is not in the hardcoded exclusion list.
 fn running_graphics_processes() -> Vec<(String, String)> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    // Snapshot the process table under the shared lock, then release it before
+    // the per-process Win32 work (module snapshot + EnumWindows). That work is
+    // slow and would otherwise serialize every other poll behind this one.
+    let procs: Vec<(u32, String, PathBuf)> = {
+        let mut sys = process_sys();
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+        sys.processes()
+            .values()
+            .filter_map(|p| {
+                let exe = p.exe()?.to_path_buf();
+                Some((
+                    p.pid().as_u32(),
+                    p.name().to_string_lossy().to_lowercase(),
+                    exe,
+                ))
+            })
+            .collect()
+    };
     let mut out = vec![];
-    for p in sys.processes().values() {
-        let pid = p.pid().as_u32();
-        let exe = match p.exe() {
-            Some(e) => e.to_path_buf(),
-            None => continue,
-        };
-        let pm = p.name().to_string_lossy().to_lowercase();
+    for (pid, pm, exe) in procs {
         // Exclusion list (test 3).
         if GAME_EXCLUDE_NAMES.iter().any(|n| n.to_lowercase() == pm) {
             continue;
@@ -2677,12 +2723,21 @@ fn main() {
             if let Some(win) = app.get_webview_window("main") {
                 win.on_window_event(|e| {
                     if matches!(e, tauri::WindowEvent::CloseRequested { .. }) {
+                        // Signal the watcher loop to stop, then force the exit
+                        // so the hidden toa.sh console window dies with us.
+                        SHUTDOWN.store(true, Ordering::SeqCst);
                         std::process::exit(0);
                     }
                 });
             }
             std::thread::spawn(move || loop {
+                if SHUTDOWN.load(Ordering::SeqCst) {
+                    break;
+                }
                 std::thread::sleep(Duration::from_millis(2000));
+                if SHUTDOWN.load(Ordering::SeqCst) {
+                    break;
+                }
                 watcher_tick(&app, &state);
             });
             Ok(())

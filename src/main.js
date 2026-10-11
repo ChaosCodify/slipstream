@@ -147,6 +147,17 @@ let basicRunning = false; // a boost is active (mirrors basic_active in Rust)
 let basicBoostWasRunning = false; // boosted exe was detected running at boost time
 let basicAskDone = new Set(); // exes the user answered Yes/No to this session
 
+// Insertion-ordered bounded Set: session-long "already handled" sets would
+// otherwise grow for the whole run on a machine that launches many games.
+function addBounded(set, value, max) {
+  if (set.has(value)) return;
+  set.add(value);
+  if (set.size > max) {
+    const oldest = set.values().next().value;
+    if (oldest !== undefined) set.delete(oldest);
+  }
+}
+
 const gameAskToast = document.getElementById("gameAskToast");
 let gameAskTarget = null; // current DetectedGame being confirmed
 
@@ -170,7 +181,7 @@ function hideAskToast() {
 document.getElementById("gameAskYes").addEventListener("click", async () => {
   const game = gameAskTarget;
   if (!game) return hideAskToast();
-  basicAskDone.add(game.exe_path.toLowerCase());
+  addBounded(basicAskDone, game.exe_path.toLowerCase(), 500);
   basicSelected = game.exe_path.toLowerCase();
   hideAskToast();
   renderHome();
@@ -179,7 +190,7 @@ document.getElementById("gameAskYes").addEventListener("click", async () => {
 document.getElementById("gameAskNo").addEventListener("click", () => {
   const game = gameAskTarget;
   if (game) {
-    basicAskDone.add(game.exe_path.toLowerCase());
+    addBounded(basicAskDone, game.exe_path.toLowerCase(), 500);
     const name = game.exe_path.split(/[\\/]/).pop() || game.name;
     if (!store.settings.dismissed_games.some((n) => n.toLowerCase() === name.toLowerCase())) {
       store.settings.dismissed_games.push(name);
@@ -663,6 +674,14 @@ function renderGames() {
 }
 
 const gameIconCache = new Map();
+const GAME_ICON_CACHE_MAX = 300;
+function cacheGameIcon(key, url) {
+  if (!gameIconCache.has(key) && gameIconCache.size >= GAME_ICON_CACHE_MAX) {
+    const oldest = gameIconCache.keys().next().value;
+    if (oldest !== undefined) gameIconCache.delete(oldest);
+  }
+  gameIconCache.set(key, url);
+}
 function loadGameIcons() {
   document.querySelectorAll(".game-icon img[data-exe]").forEach((img) => {
     const exe = img.dataset.exe;
@@ -676,11 +695,11 @@ function loadGameIcons() {
     }
     invoke("get_game_icon", { exePath: exe, iconPath: icon || null })
       .then((url) => {
-        gameIconCache.set(key, url || "");
+        cacheGameIcon(key, url || "");
         img.src = url || "";
       })
       .catch(() => {
-        gameIconCache.set(key, "");
+        cacheGameIcon(key, "");
         img.src = "";
       });
   });
@@ -1385,7 +1404,7 @@ document.getElementById("detectAddBtn").addEventListener("click", async () => {
       close_background: true,
     };
     store = await invoke("save_game", { game: entry });
-    detectSuppressed.add(game.exe_path.toLowerCase());
+    addBounded(detectSuppressed, game.exe_path.toLowerCase(), 500);
     detectBanner.hidden = true;
     renderGames();
     refreshDetect();
@@ -1398,7 +1417,7 @@ document.getElementById("detectAddBtn").addEventListener("click", async () => {
 
 document.getElementById("detectDismissBtn").addEventListener("click", () => {
   if (detectCandidates[0]) {
-    detectSuppressed.add(detectCandidates[0].exe_path.toLowerCase());
+    addBounded(detectSuppressed, detectCandidates[0].exe_path.toLowerCase(), 500);
     const name = detectCandidates[0].name;
     if (!store.settings.dismissed_games.some((n) => n.toLowerCase() === name.toLowerCase())) {
       store.settings.dismissed_games.push(name);
@@ -1413,6 +1432,25 @@ document.getElementById("detectDismissBtn").addEventListener("click", () => {
 });
 
 // ---------- boot ----------
+
+// UI pollers that go quiet while the window is hidden/minimized. The backend
+// watcher keeps running (it must still boost games launched while minimized),
+// but there is no point burning WebView timers + IPC round-trips repainting a
+// window nobody can see.
+const pollers = [];
+function addPoller(fn, intervalMs) {
+  pollers.push(setInterval(() => {
+    if (document.hidden) return;
+    try { fn(); } catch (e) { jslog("error", `poll failed: ${e}`); }
+  }, intervalMs));
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  // Catch up immediately when the window comes back.
+  if (uiMode === "basic") refreshHome().catch(() => {});
+  refreshDetect().catch(() => {});
+});
+
 async function boot() {
   store = await invoke("get_store");
   uiMode = store.settings.ui_mode === "advanced" ? "advanced" : "basic";
@@ -1437,7 +1475,7 @@ async function boot() {
   // Basic mode: probe for running games + auto-stop on exit. Poll fast so
   // start/stop feels immediate (the button flips optimistically anyway).
   refreshHome().catch((e) => jslog("error", `refreshHome at boot failed: ${e}`));
-  setInterval(() => {
+  addPoller(() => {
     if (uiMode === "basic") {
       refreshHome().catch((e) => jslog("error", `refreshHome poll failed: ${e}`));
     }
@@ -1457,7 +1495,7 @@ async function boot() {
 
   refreshSteamPicker().catch((e) => jslog("error", `refreshSteamPicker failed: ${e}`));
   refreshDetect().catch((e) => jslog("error", `refreshDetect at boot failed: ${e}`));
-  setInterval(() => {
+  addPoller(() => {
     refreshDetect().catch((e) => jslog("error", `refreshDetect poll failed: ${e}`));
   }, 5000);
 
@@ -1471,10 +1509,20 @@ async function boot() {
   }
 }
 
+const unlisteners = [];
 listen("slipstream://status", (event) => {
   status = { ...status, ...event.payload };
   setStatus();
   renderGames();
+}).then((un) => unlisteners.push(un)).catch((e) => jslog("error", `status listen failed: ${e}`));
+
+// Detach Tauri event subscriptions when the webview tears down so we don't
+// leave listeners (or their backing ids) alive across a reload/close path.
+window.addEventListener("beforeunload", () => {
+  for (const un of unlisteners) {
+    try { un(); } catch (_) {}
+  }
+  unlisteners.length = 0;
 });
 
 // ---------- known issues ----------

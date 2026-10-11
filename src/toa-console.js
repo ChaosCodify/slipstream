@@ -12,6 +12,7 @@
   let copiedTimer = null;
   let autosaveTimer = null;
   let dirty = false;
+  let unlisten = null;
 
   const body = document.getElementById("body");
   const countEl = document.getElementById("count");
@@ -155,9 +156,15 @@
           else if (level !== "warn" && level !== "info" && level !== "log") level = "rust";
           pushLog(level, msg);
         } catch (_) {}
-      });
+      }).then((un) => { unlisten = un; }).catch(() => {});
     } catch (_) {}
   }
+
+  // Detach the event subscription when this window goes away.
+  window.addEventListener("beforeunload", () => {
+    try { if (unlisten) unlisten(); } catch (_) {}
+    unlisten = null;
+  });
 
   function captureWindowErrors() {
     window.addEventListener("error", (e) => {
